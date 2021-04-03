@@ -7,8 +7,14 @@ using System.Security;
 
 namespace IncrementalBackup
 {
+    /// <summary>
+    /// The top-level program class, containing high level operations and control flow.
+    /// </summary>
     class Application
     {
+        /// <summary>
+        /// Application entry point.
+        /// </summary>
         static int Main(string[] args) {
             try {
                 BackupConfig? config = ParseArgs(args);
@@ -19,13 +25,8 @@ namespace IncrementalBackup
                 DisplayConfig(config);
 
                 var index = ReadBackupIndex(config.TargetDirectory);
-                List<BackupManifest> previousManifests;
-                if (index == null) {
-                    previousManifests = new();
-                }
-                else {
-                    previousManifests = ReadPreviousManifests(config, index);
-                }
+
+                var previousManifests = ReadPreviousManifests(config.SourceDirectory, config.TargetDirectory, index);
 
                 var backupDirectory = CreateBackupDirectory(config.TargetDirectory);
 
@@ -41,6 +42,17 @@ namespace IncrementalBackup
             }
         }
 
+        /// <summary>
+        /// Parses and validates the application's command line arguments. <br/>
+        /// If any of the arguments are invalid, outputs error info to the console.
+        /// </summary>
+        /// <remarks>
+        /// Note that the filesystem paths in the returned <see cref="BackupConfig"/> are not guaranteed to be valid, as this
+        /// is unfortunately not really possible to check without just doing the desired I/O operation. <br/>
+        /// However, some invalid paths are detected by this method.
+        /// </remarks>
+        /// <param name="args">The command line arguments.</param>
+        /// <returns>The <see cref="BackupConfig"/> parsed from the arguments, or <c>null</c> if any argument were invalid.</returns>
         private static BackupConfig? ParseArgs(string[] args) {
             if (args.Length < 2) {
                 Console.Out.WriteLine("Usage: IncrementalBackup.exe <source_dir> <target_dir> [exclude_path1 exclude_path2 ...]");
@@ -97,6 +109,10 @@ namespace IncrementalBackup
             }
         }
 
+        /// <summary>
+        /// Outputs a <see cref="BackupConfig"/> to the console.
+        /// </summary>
+        /// <param name="config">The <see cref="BackupConfig"/> to display.</param>
         private static void DisplayConfig(BackupConfig config) {
             Console.Out.WriteLine($"Source directory: {config.SourceDirectory}");
             Console.Out.WriteLine($"Target directory: {config.TargetDirectory}");
@@ -111,9 +127,17 @@ namespace IncrementalBackup
             }
         }
 
+        /// <summary>
+        /// Reads the backup index from a target directory. <br />
+        /// If no backup index exists, informs the user via the console.
+        /// </summary>
+        /// <param name="targetDirectory">The target directory to read from.</param>
+        /// <returns>The read <see cref="BackupIndex"/>, or <c>null</c> if the index file does not exist.</returns>
+        /// <exception cref="CriticalError">If the index file exists, but could not be read/parsed.</exception>
+        /// <seealso cref="BackupMeta.ReadIndexFile(string)"/>
         private static BackupIndex? ReadBackupIndex(string targetDirectory) {
             try {
-                return Meta.ReadBackupIndex(targetDirectory);
+                return BackupMeta.ReadIndexFile(targetDirectory);
             }
             catch (IndexFileNotFoundException) {
                 Console.Out.WriteLine("No existing backup index found.");
@@ -124,29 +148,60 @@ namespace IncrementalBackup
             }
         }
 
+        /// <summary>
+        /// Creates a new backup directory in the given target directory. <br/>
+        /// If successful, informs the user via the console.
+        /// </summary>
+        /// <param name="targetDirectory">The target directory to create the backup directory in.</param>
+        /// <returns>A <see cref="DirectoryInfo"/> instance associated with the created directory.</returns>
+        /// <exception cref="CriticalError">If a new backup directory could not be created.</exception>
         private static DirectoryInfo CreateBackupDirectory(string targetDirectory) {
             DirectoryInfo directory;
             try {
-                directory = Meta.CreateBackupDirectory(targetDirectory);
+                directory = BackupMeta.CreateBackupDirectory(targetDirectory);
             }
             catch (CreateBackupDirectoryException e) {
                 throw new CriticalError("Failed to create new backup directory.", e);
             }
-            // TODO? technically FullName can throw
+            // TODO: exception handling? technically FullName can throw
             Console.Out.WriteLine($"Created backup directory \"{directory.FullName}\"");
             return directory;
         }
 
-        private static List<BackupManifest> ReadPreviousManifests(BackupConfig config, BackupIndex index) {
+        /// <summary>
+        /// Reads the existing backup manifest matching the given source directory.
+        /// </summary>
+        /// <remarks>
+        /// Manifests are matched by comparing their source directories to <paramref name="sourceDirectory"/>. <br/>
+        /// The comparison ignores case, but is otherwise exact. E.g. symbolic links are not resolved.
+        /// </remarks>
+        /// <param name="sourceDirectory">The source directory to match.</param>
+        /// <param name="targetDirectory">The target directory which is being examined.</param>
+        /// <param name="index">The backup index detailing all the existing backups in <paramref name="targetDirectory"/>.
+        /// If <c>null</c>, no manifests are matched.</param>
+        /// <returns>A list of the matched backup manifests.</returns>
+        /// <exception cref="CriticalError">If a manifest file could not be read.</exception>
+        private static List<BackupManifest> ReadPreviousManifests(string sourceDirectory, string targetDirectory, BackupIndex? index) {
+            if (index == null) {
+                return new();
+            }
+
             List<BackupManifest> manifests = new();
             foreach (var pair in index.Backups) {
-                var backupFolderName = pair.Key;
-                var sourceDirectory = pair.Value;
+                var backupName = pair.Key;
+                var backupSourceDirectory = pair.Value;
 
-                if (string.Compare(config.SourceDirectory, sourceDirectory, StringComparison.InvariantCultureIgnoreCase) == 0) {
-                    var folderPath = Path.Join(config.TargetDirectory, backupFolderName);
-                    // TODO: error handling
-                    manifests.Add(Meta.ReadBackupManifest(folderPath));
+                // Paths are assumed to be already normalised.
+                if (string.Compare(sourceDirectory, backupSourceDirectory, StringComparison.InvariantCultureIgnoreCase) == 0) {
+                    var folderPath = Path.Join(targetDirectory, backupName);
+                    BackupManifest manifest;
+                    try {
+                        manifest = BackupMeta.ReadManifestFile(folderPath);
+                    }
+                    catch (ManifestFileException e) {
+                        throw new CriticalError($"Failed to read existing backup \"{backupName}\".", e);
+                    }
+                    manifests.Add(manifest);
                 }
             }
             return manifests;
@@ -210,9 +265,13 @@ namespace IncrementalBackup
     record BackupConfig(
         string SourceDirectory,
         string TargetDirectory,
-        IReadOnlyList<string> ExcludePaths      // Should be normalised.
+        IReadOnlyList<string> ExcludePaths
     );
 
+    /// <summary>
+    /// Thrown when an unrecoverable error is encountered and the application should exit. <br/>
+    /// Should only be handled at the very top level of the application.
+    /// </summary>
     class CriticalError : ApplicationException
     {
         public CriticalError(string? message = null, Exception? innerException = null) : base(message, innerException) { }
