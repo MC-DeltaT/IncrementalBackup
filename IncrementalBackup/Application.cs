@@ -86,7 +86,7 @@ namespace IncrementalBackup
                     validArgs = false;
                 }
             }
-            
+
             if (validArgs) {
                 sourceDirectory = sourceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 targetDirectory = targetDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -215,6 +215,6 @@ namespace IncrementalBackup
 
     class CriticalError : ApplicationException
     {
-        public CriticalError(string? message = null, Exception? innerException = null) : base(message, innerException) {}
+        public CriticalError(string? message = null, Exception? innerException = null) : base(message, innerException) { }
     }
 }

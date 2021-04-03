@@ -11,7 +11,8 @@ namespace IncrementalBackup
     }
 
     // Results of a specific backup run.
-    class BackupManifest {
+    class BackupManifest
+    {
         public string? sourceDirectory = null;
         public DateTime? BeginTime = null;      // UTC.
         public DateTime? EndTime = null;        // UTC.

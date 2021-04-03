@@ -111,22 +111,22 @@ namespace IncrementalBackup
 
     class IndexFileException : ApplicationException
     {
-        public IndexFileException(string? message = null, Exception? innerException = null) : base(message, innerException) {}
+        public IndexFileException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
     }
 
     class IndexFileNotFoundException : IndexFileException
     {
-        public IndexFileNotFoundException(string? message = null, Exception? innerException = null) : base(message, innerException) {}
+        public IndexFileNotFoundException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
     }
 
     class ManifestFileException : ApplicationException
     {
-        public ManifestFileException(string? message = null, Exception? innerException = null) : base(message, innerException) {}
+        public ManifestFileException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
     }
 
     class ManifestFileNotFoundException : ManifestFileException
     {
-        public ManifestFileNotFoundException(string? message = null, Exception? innerException = null) : base(message, innerException) {}
+        public ManifestFileNotFoundException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
     }
 
     class CreateBackupDirectoryException : ApplicationException
