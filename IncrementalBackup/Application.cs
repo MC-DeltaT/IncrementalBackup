@@ -19,6 +19,13 @@ namespace IncrementalBackup
                 DisplayConfig(config);
 
                 var index = ReadBackupIndex(config.TargetDirectory);
+                List<BackupManifest> previousManifests;
+                if (index == null) {
+                    previousManifests = new();
+                }
+                else {
+                    previousManifests = ReadPreviousManifests(config, index);
+                }
 
                 var backupDirectory = CreateBackupDirectory(config.TargetDirectory);
 
@@ -102,12 +109,11 @@ namespace IncrementalBackup
                     Console.Out.WriteLine($"\t{path}");
                 }
             }
-            Console.Out.WriteLine();
         }
 
         private static BackupIndex? ReadBackupIndex(string targetDirectory) {
             try {
-                return Metastructure.ReadBackupIndex(targetDirectory);
+                return Meta.ReadBackupIndex(targetDirectory);
             }
             catch (IndexFileNotFoundException) {
                 Console.Out.WriteLine("No existing backup index found.");
@@ -119,12 +125,31 @@ namespace IncrementalBackup
         }
 
         private static DirectoryInfo CreateBackupDirectory(string targetDirectory) {
+            DirectoryInfo directory;
             try {
-                return Metastructure.CreateBackupDirectory(targetDirectory);
+                directory = Meta.CreateBackupDirectory(targetDirectory);
             }
             catch (CreateBackupDirectoryException e) {
                 throw new CriticalError("Failed to create new backup directory.", e);
             }
+            // TODO? technically FullName can throw
+            Console.Out.WriteLine($"Created backup directory \"{directory.FullName}\"");
+            return directory;
+        }
+
+        private static List<BackupManifest> ReadPreviousManifests(BackupConfig config, BackupIndex index) {
+            List<BackupManifest> manifests = new();
+            foreach (var pair in index.Backups) {
+                var backupFolderName = pair.Key;
+                var sourceDirectory = pair.Value;
+
+                if (string.Compare(config.SourceDirectory, sourceDirectory, StringComparison.InvariantCultureIgnoreCase) == 0) {
+                    var folderPath = Path.Join(config.TargetDirectory, backupFolderName);
+                    // TODO: error handling
+                    manifests.Add(Meta.ReadBackupManifest(folderPath));
+                }
+            }
+            return manifests;
         }
 
         private static BackupManifest BackUp(BackupConfig config, BackupManifest? lastManifest) {

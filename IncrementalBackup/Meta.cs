@@ -6,10 +6,10 @@ using System.Text.Json;
 
 namespace IncrementalBackup
 {
-    static class Metastructure
+    static class Meta
     {
-        private const string MANIFEST_FILENAME = "manifest.txt";
-        private const string INDEX_FILENAME = "index.txt";
+        private const string MANIFEST_FILENAME = "manifest.json";
+        private const string INDEX_FILENAME = "index.json";
         private const int BACKUP_DIRECTORY_NAME_LENGTH = 16;
 
         public static BackupIndex ReadBackupIndex(string targetDirectory) {
@@ -40,7 +40,7 @@ namespace IncrementalBackup
             }
         }
 
-        public static BackupManifest? ReadBackupManifest(string backupDirectory) {
+        public static BackupManifest ReadBackupManifest(string backupDirectory) {
             var manifestPath = Path.Join(backupDirectory, MANIFEST_FILENAME);
 
             BackupManifest? manifest;
