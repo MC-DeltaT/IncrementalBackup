@@ -25,15 +25,21 @@ namespace IncrementalBackup
                 DisplayConfig(config);
 
                 var index = ReadBackupIndex(config.TargetDirectory);
+                if (index == null) {
+                    Console.Out.WriteLine("No existing backup index found.");
+                }
 
                 var previousManifests = ReadPreviousManifests(config.SourceDirectory, config.TargetDirectory, index);
+                Console.Out.WriteLine($"{previousManifests.Count} previous backups found for this source directory.");
 
                 var backupDirectory = CreateBackupDirectory(config.TargetDirectory);
+                // TODO: exception handling? technically FullName can throw
+                Console.Out.WriteLine($"Created backup directory \"{backupDirectory.FullName}\"");
 
                 return 0;
             }
             catch (CriticalError e) {
-                Console.Error.WriteLine(e.Message);
+                Console.Error.WriteLine($"Error: {e.Message}");
                 return 3;
             }
             catch (Exception e) {
@@ -76,6 +82,7 @@ namespace IncrementalBackup
                 Console.Error.WriteLine("Error: access to source directory is denied.");
                 validArgs = false;
             }
+            sourceDirectory = sourceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             try {
                 targetDirectory = Path.GetFullPath(targetDirectory);
@@ -88,20 +95,27 @@ namespace IncrementalBackup
                 Console.Error.WriteLine("Error: access to target directory is denied.");
                 validArgs = false;
             }
+            targetDirectory = targetDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             for (int i = 0; i < excludePaths.Count; ++i) {
+                var path = excludePaths[i];
                 try {
-                    excludePaths[i] = Path.GetFullPath(excludePaths[i], sourceDirectory);
+                    if (Path.IsPathFullyQualified(path)) {
+                        // TODO: detect if path is above source directory.
+                        if (Path.GetRelativePath(sourceDirectory, path) == path) {
+                            Console.Error.WriteLine($"Error: exclude path \"{path}\" is not within source directory.");
+                            validArgs = false;
+                        }
+                    }
+                    excludePaths[i] = Path.GetFullPath(path, sourceDirectory);
                 }
                 catch (ArgumentException) {
-                    Console.Error.WriteLine($"Error: invalid exclude path \"{excludePaths[i]}\".");
+                    Console.Error.WriteLine($"Error: invalid exclude path \"{path}\".");
                     validArgs = false;
                 }
             }
 
             if (validArgs) {
-                sourceDirectory = sourceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                targetDirectory = targetDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 return new BackupConfig(sourceDirectory, targetDirectory, excludePaths);
             }
             else {
@@ -128,8 +142,7 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Reads the backup index from a target directory. <br />
-        /// If no backup index exists, informs the user via the console.
+        /// Reads the backup index from a target directory.
         /// </summary>
         /// <param name="targetDirectory">The target directory to read from.</param>
         /// <returns>The read <see cref="BackupIndex"/>, or <c>null</c> if the index file does not exist.</returns>
@@ -140,7 +153,6 @@ namespace IncrementalBackup
                 return BackupMeta.ReadIndexFile(targetDirectory);
             }
             catch (IndexFileNotFoundException) {
-                Console.Out.WriteLine("No existing backup index found.");
                 return null;
             }
             catch (IndexFileException e) {
@@ -149,27 +161,22 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Creates a new backup directory in the given target directory. <br/>
-        /// If successful, informs the user via the console.
+        /// Creates a new backup directory in the given target directory.
         /// </summary>
         /// <param name="targetDirectory">The target directory to create the backup directory in.</param>
         /// <returns>A <see cref="DirectoryInfo"/> instance associated with the created directory.</returns>
         /// <exception cref="CriticalError">If a new backup directory could not be created.</exception>
         private static DirectoryInfo CreateBackupDirectory(string targetDirectory) {
-            DirectoryInfo directory;
             try {
-                directory = BackupMeta.CreateBackupDirectory(targetDirectory);
+                return BackupMeta.CreateBackupDirectory(targetDirectory);
             }
             catch (CreateBackupDirectoryException e) {
                 throw new CriticalError("Failed to create new backup directory.", e);
             }
-            // TODO: exception handling? technically FullName can throw
-            Console.Out.WriteLine($"Created backup directory \"{directory.FullName}\"");
-            return directory;
         }
 
         /// <summary>
-        /// Reads the existing backup manifest matching the given source directory.
+        /// Reads the existing backup manifests matching the given source directory.
         /// </summary>
         /// <remarks>
         /// Manifests are matched by comparing their source directories to <paramref name="sourceDirectory"/>. <br/>
