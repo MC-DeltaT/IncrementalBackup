@@ -13,44 +13,89 @@ namespace IncrementalBackup
     class Application
     {
         /// <summary>
-        /// Application entry point.
+        /// Application entry point. <br/>
+        /// Instantiates the <see cref="Application"/> instance and calls <see cref="Run(string[])"/>.
         /// </summary>
-        static int Main(string[] args) {
+        static int Main(string[] cmdArgs) {
+            return new Application().Run(cmdArgs);
+        }
+
+        /// <summary>
+        /// Process return code indicating successfully backed up all requested files.
+        /// </summary>
+        private const int EXIT_SUCCESS = 0;
+        /// <summary>
+        /// Process return code indicating that some files were not backed up due to I/O errors, permission errors, etc.
+        /// </summary>
+        private const int EXIT_SUCCESS_SKIPPED_FILES = 1;
+        /// <summary>
+        /// Process return code indicating the backup was aborted due to invalid command line arguments.
+        /// </summary>
+        private const int EXIT_INVALID_ARGS = 2;
+        /// <summary>
+        /// Process return code indicating the backup was aborted due to some runtime error.
+        /// </summary>
+        private const int EXIT_ERROR = 3;
+        /// <summary>
+        /// Process return code indicating the backup was aborted due to an unhandled exception (bad programmer!).
+        /// </summary>
+        private const int EXIT_LOGIC_ERROR = 4;
+
+        /// <summary>
+        /// Logger responsible for writing info to the console and log file.
+        /// </summary>
+        private readonly Logger Logger;
+
+        private Application() {
+            Logger = new(new ConsoleLogHandler());
+        }
+
+        /// <summary>
+        /// Main application functionality.
+        /// </summary>
+        /// <param name="cmdArgs">The process's command line arguments.</param>
+        /// <returns>Process return code.</returns>
+        private int Run(string[] cmdArgs) {
             try {
-                BackupConfig? config = ParseArgs(args);
+                BackupConfig? config = ParseCmdArgs(cmdArgs);
                 if (config == null) {
-                    return 2;
+                    return EXIT_INVALID_ARGS;
                 }
 
                 DisplayConfig(config);
 
                 var index = ReadBackupIndex(config.TargetDirectory);
                 if (index == null) {
-                    Console.Out.WriteLine("No existing backup index found.");
+                    Logger.Info("No existing backup index found.");
                 }
 
                 var previousManifests = ReadPreviousManifests(config.SourceDirectory, config.TargetDirectory, index);
-                Console.Out.WriteLine($"{previousManifests.Count} previous backups found for this source directory.");
+                Logger.Info($"{previousManifests.Count} previous backups found for this source directory.");
 
                 var backupDirectory = CreateBackupDirectory(config.TargetDirectory);
                 // TODO: exception handling? technically FullName can throw
-                Console.Out.WriteLine($"Created backup directory \"{backupDirectory.FullName}\"");
+                Logger.Info($"Created backup directory \"{backupDirectory.FullName}\"");
 
-                return 0;
+                if (false/*manifest.SkippedDirectories.Concat(manifest.SkippedFiles).Any(s => s.Reason != SkipReason.Excluded)*/) {
+                    return EXIT_SUCCESS_SKIPPED_FILES;
+                }
+                else {
+                    return EXIT_SUCCESS;
+                }
             }
             catch (CriticalError e) {
-                Console.Error.WriteLine($"Error: {e.Message}");
-                return 3;
+                Logger.Error(e.Message);
+                return EXIT_ERROR;
             }
             catch (Exception e) {
-                Console.Error.WriteLine($"Unhandled error: {e}");
-                return 4;
+                Logger.Error($"Unhandled exception: {e}");
+                return EXIT_LOGIC_ERROR;
             }
         }
 
         /// <summary>
         /// Parses and validates the application's command line arguments. <br/>
-        /// If any of the arguments are invalid, outputs error info to the console.
+        /// If any of the arguments are invalid, writes error info to the logs.
         /// </summary>
         /// <remarks>
         /// Note that the filesystem paths in the returned <see cref="BackupConfig"/> are not guaranteed to be valid, as this
@@ -59,7 +104,7 @@ namespace IncrementalBackup
         /// </remarks>
         /// <param name="args">The command line arguments.</param>
         /// <returns>The <see cref="BackupConfig"/> parsed from the arguments, or <c>null</c> if any argument were invalid.</returns>
-        private static BackupConfig? ParseArgs(string[] args) {
+        private BackupConfig? ParseCmdArgs(string[] args) {
             if (args.Length < 2) {
                 Console.Out.WriteLine("Usage: IncrementalBackup.exe <source_dir> <target_dir> [exclude_path1 exclude_path2 ...]");
                 return null;
@@ -75,11 +120,11 @@ namespace IncrementalBackup
                 sourceDirectory = Path.GetFullPath(sourceDirectory);
             }
             catch (Exception e) when (e is ArgumentException || e is NotSupportedException || e is PathTooLongException) {
-                Console.Error.WriteLine("Error: source directory is not a valid path.");
+                Logger.Error("Source directory is not a valid path.");
                 validArgs = false;
             }
             catch (SecurityException) {
-                Console.Error.WriteLine("Error: access to source directory is denied.");
+                Logger.Error("Access denied while resolving source directory.");
                 validArgs = false;
             }
             sourceDirectory = sourceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -88,11 +133,11 @@ namespace IncrementalBackup
                 targetDirectory = Path.GetFullPath(targetDirectory);
             }
             catch (Exception e) when (e is ArgumentException || e is NotSupportedException || e is PathTooLongException) {
-                Console.Error.WriteLine("Error: target directory is not a valid path.");
+                Logger.Error("Access denied while resolving target directory.");
                 validArgs = false;
             }
             catch (SecurityException) {
-                Console.Error.WriteLine("Error: access to target directory is denied.");
+                Logger.Error("Access to target directory is denied.");
                 validArgs = false;
             }
             targetDirectory = targetDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -103,14 +148,14 @@ namespace IncrementalBackup
                     if (Path.IsPathFullyQualified(path)) {
                         // TODO: detect if path is above source directory.
                         if (Path.GetRelativePath(sourceDirectory, path) == path) {
-                            Console.Error.WriteLine($"Error: exclude path \"{path}\" is not within source directory.");
+                            Logger.Error($"Exclude path \"{path}\" is not within source directory.");
                             validArgs = false;
                         }
                     }
                     excludePaths[i] = Path.GetFullPath(path, sourceDirectory);
                 }
                 catch (ArgumentException) {
-                    Console.Error.WriteLine($"Error: invalid exclude path \"{path}\".");
+                    Logger.Error($"Invalid exclude path \"{path}\".");
                     validArgs = false;
                 }
             }
@@ -124,21 +169,14 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Outputs a <see cref="BackupConfig"/> to the console.
+        /// Outputs a <see cref="BackupConfig"/> to the logs.
         /// </summary>
-        /// <param name="config">The <see cref="BackupConfig"/> to display.</param>
-        private static void DisplayConfig(BackupConfig config) {
-            Console.Out.WriteLine($"Source directory: {config.SourceDirectory}");
-            Console.Out.WriteLine($"Target directory: {config.TargetDirectory}");
-            Console.Out.WriteLine("Exclude paths:");
-            if (config.ExcludePaths.Count == 0) {
-                Console.Out.WriteLine("\t<none>");
-            }
-            else {
-                foreach (var path in config.ExcludePaths) {
-                    Console.Out.WriteLine($"\t{path}");
-                }
-            }
+        /// <param name="config">The <see cref="BackupConfig"/> to output.</param>
+        private void DisplayConfig(BackupConfig config) {
+            Logger.Info($"Source directory: {config.SourceDirectory}");
+            Logger.Info($"Target directory: {config.TargetDirectory}");
+            Logger.Info("Exclude paths:\n"
+                + string.Join('\n', config.ExcludePaths.Select(path => $"\t{path}").DefaultIfEmpty("\t<none>")));
         }
 
         /// <summary>
@@ -148,7 +186,7 @@ namespace IncrementalBackup
         /// <returns>The read <see cref="BackupIndex"/>, or <c>null</c> if the index file does not exist.</returns>
         /// <exception cref="CriticalError">If the index file exists, but could not be read/parsed.</exception>
         /// <seealso cref="BackupMeta.ReadIndexFile(string)"/>
-        private static BackupIndex? ReadBackupIndex(string targetDirectory) {
+        private BackupIndex? ReadBackupIndex(string targetDirectory) {
             try {
                 return BackupMeta.ReadIndexFile(targetDirectory);
             }
@@ -166,7 +204,7 @@ namespace IncrementalBackup
         /// <param name="targetDirectory">The target directory to create the backup directory in.</param>
         /// <returns>A <see cref="DirectoryInfo"/> instance associated with the created directory.</returns>
         /// <exception cref="CriticalError">If a new backup directory could not be created.</exception>
-        private static DirectoryInfo CreateBackupDirectory(string targetDirectory) {
+        private DirectoryInfo CreateBackupDirectory(string targetDirectory) {
             try {
                 return BackupMeta.CreateBackupDirectory(targetDirectory);
             }
@@ -188,7 +226,7 @@ namespace IncrementalBackup
         /// If <c>null</c>, no manifests are matched.</param>
         /// <returns>A list of the matched backup manifests.</returns>
         /// <exception cref="CriticalError">If a manifest file could not be read.</exception>
-        private static List<BackupManifest> ReadPreviousManifests(string sourceDirectory, string targetDirectory, BackupIndex? index) {
+        private List<BackupManifest> ReadPreviousManifests(string sourceDirectory, string targetDirectory, BackupIndex? index) {
             if (index == null) {
                 return new();
             }

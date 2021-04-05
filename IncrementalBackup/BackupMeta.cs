@@ -152,7 +152,8 @@ namespace IncrementalBackup
                     try {
                         return Directory.CreateDirectory(path);
                     }
-                    catch (Exception e) {
+                    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException
+                            || e is NotSupportedException) {
                         exception = e;
                     }
                 }

@@ -111,24 +111,12 @@ namespace IncrementalBackup
     class FileLogHandler : IDisposable
     {
         public FileLogHandler(string path) {
-            // TODO
             try {
                 Stream = File.CreateText(path);
             }
-            catch (UnauthorizedAccessException e) {
-
-            }
-            catch (ArgumentException) {
-
-            }
-            catch (PathTooLongException) {
-
-            }
-            catch (DirectoryNotFoundException) {
-
-            }
-            catch (NotSupportedException) {
-
+            catch (Exception e) when (e is ArgumentException || e is DirectoryNotFoundException || e is NotSupportedException
+                || e is PathTooLongException || e is UnauthorizedAccessException) {
+                throw new LoggerException(innerException: e);
             }
         }
 
@@ -217,7 +205,7 @@ namespace IncrementalBackup
         /// <param name="message">The log message.</param>
         /// <returns>The formatted log message. Includes a trailing newline.</returns>
         public static string FormatMessage(LogLevel level, string message) =>
-            String.Concat(
+            string.Concat(
                 message.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None)
                 .Select(line => FormatLine(level, line) + Environment.NewLine));
 
