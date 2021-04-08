@@ -69,10 +69,10 @@ namespace IncrementalBackup
                 consoleException = e;
             }
             if (fileException != null) {
-                ConsoleHandler?.Log(LogLevel.Warning, $"Failed to write log to file: {fileException.Message}");
+                ConsoleHandler?.Log(LogLevel.Warning, fileException.Message);
             }
             if (consoleException != null) {
-                FileHandler?.Log(LogLevel.Warning, $"Failed to write log to console: {consoleException.Message}");
+                FileHandler?.Log(LogLevel.Warning, consoleException.Message);
             }
         }
 
@@ -110,13 +110,19 @@ namespace IncrementalBackup
     /// </summary>
     class FileLogHandler : IDisposable
     {
+        /// <summary>
+        /// Creates a handler that logs to a file at the given path. <br/>
+        /// The file is created new or overwritten if it exists.
+        /// </summary>
+        /// <param name="path">The file to log messages to.</param>
+        /// <exception cref="LoggerException">If the file could not be opened.</exception>
         public FileLogHandler(string path) {
             try {
                 Stream = File.CreateText(path);
             }
             catch (Exception e) when (e is ArgumentException || e is DirectoryNotFoundException || e is NotSupportedException
                 || e is PathTooLongException || e is UnauthorizedAccessException) {
-                throw new LoggerException(innerException: e);
+                throw new LoggerException($"Failed to create log file: {e.Message}", e);
             }
         }
 
@@ -135,7 +141,7 @@ namespace IncrementalBackup
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new LoggerException($"Failed to write to log file: {e.Message}", e);
+                throw new LoggerException($"Failed to write log to file: {e.Message}", e);
             }
         }
 
@@ -190,7 +196,7 @@ namespace IncrementalBackup
                 consoleStream.Write(LogFormatter.FormatMessage(level, message));
             }
             catch (IOException e) {
-                throw new LoggerException($"Failed to write to console: {e.Message}", e);
+                throw new LoggerException($"Failed to write log to console: {e.Message}", e);
             }
         }
     }

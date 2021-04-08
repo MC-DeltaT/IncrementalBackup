@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security;
 using System.Text.Json;
@@ -6,6 +7,47 @@ using System.Text.Json;
 
 namespace IncrementalBackup
 {
+    /// <summary>
+    /// Indexes all the backups present in a target directory. <br/>
+    /// Gets saved to the target directory to indicate what backups exist.
+    /// </summary>
+    class BackupIndex
+    {
+        /// <summary>
+        /// Maps backup directory names to the source directory used in the backup. <br/>
+        /// The source directories should be normalised.
+        /// </summary>
+        public Dictionary<string, string> Backups = new();
+    }
+
+    /// <summary>
+    /// Results of a specific backup run. <br/>
+    /// Gets saved to the backup directory to preserve the details of the backup.
+    /// </summary>
+    class BackupManifest
+    {
+        /// <summary>
+        /// The path of the directory that was backed up. <br/>
+        /// Should be normalised.
+        /// </summary>
+        public string SourceDirectory;
+        /// <summary>
+        /// The UTC time at which the backup was initiated (just before any files were copied).
+        /// </summary>
+        public DateTime BeginTime;
+        /// <summary>
+        /// The UTC time at which the backup was completed (just after the last file was copied).
+        /// </summary>
+        public DateTime EndTime;
+        /// <summary>
+        /// Tree of files and directories that were successfully backed up. <br/>
+        /// The tree root is the source directory. <br/>
+        /// The existence of a <see cref="DirectoryNode"/> means that directory was copied. <br/>
+        /// The existence of a <see cref="FileNode"/> means that file was copied. <br/>
+        /// </summary>
+        public DirectoryNode BackupTree = new();
+    }
+
     static class BackupMeta
     {
         /// <summary>
@@ -138,10 +180,10 @@ namespace IncrementalBackup
         /// Creates a new randomly-named backup directory in the given directory.
         /// </summary>
         /// <param name="targetDirectory">The directory in which to create the backup directory.</param>
-        /// <returns>A <see cref="DirectoryInfo">DirectoryInfo</see> instance associated with the new backup directory.</returns>
+        /// <returns>The path to the new backup directory.</returns>
         /// <exception cref="CreateBackupDirectoryException">If the new directory could not be created, due to
         /// I/O errors, permission errors, etc.</exception>
-        public static DirectoryInfo CreateBackupDirectory(string targetDirectory) {
+        public static string CreateBackupDirectory(string targetDirectory) {
             var retries = BACKUP_DIRECTORY_CREATION_RETRIES;
             while (true) {
                 var name = Utility.RandomAlphaNumericString(BACKUP_DIRECTORY_NAME_LENGTH);
@@ -150,7 +192,8 @@ namespace IncrementalBackup
                 // Non-atomicity :|
                 if (!Directory.Exists(path) && !File.Exists(path)) {
                     try {
-                        return Directory.CreateDirectory(path);
+                        Directory.CreateDirectory(path);
+                        return path;
                     }
                     catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException
                             || e is NotSupportedException) {

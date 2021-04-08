@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "IncrementalBackup": {
+      "commandName": "Project",
+      "commandLineArgs": "D:\\ ./test_backup"
+    }
+  }
+}
