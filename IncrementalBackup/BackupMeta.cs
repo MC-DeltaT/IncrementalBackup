@@ -21,24 +21,32 @@ namespace IncrementalBackup
     }
 
     /// <summary>
+    /// Information written to the backup directory at the start of a backup.
+    /// </summary>
+    /// <param name="SourceDirectory">The path of the directory that was backed up.
+    /// Should be normalised.</param>
+    /// <param name="BeginTime">The UTC time at which the backup was initiated (just before any
+    /// files were copied).</param>
+    record BackupStartInfo (
+        string SourceDirectory,
+        DateTime BeginTime
+    );
+
+    /// <summary>
+    /// Information written to the backup directory at the end of a backup.
+    /// </summary>
+    /// <param name="EndTime">The UTC time at which the backup was completed (just after the last
+    /// file was copied).</param>
+    record BackupCompleteInfo(
+        DateTime EndTime
+    );
+
+    /// <summary>
     /// Results of a specific backup run. <br/>
     /// Gets saved to the backup directory to preserve the details of the backup.
     /// </summary>
     class BackupManifest
     {
-        /// <summary>
-        /// The path of the directory that was backed up. <br/>
-        /// Should be normalised.
-        /// </summary>
-        public string SourceDirectory;
-        /// <summary>
-        /// The UTC time at which the backup was initiated (just before any files were copied).
-        /// </summary>
-        public DateTime BeginTime;
-        /// <summary>
-        /// The UTC time at which the backup was completed (just after the last file was copied).
-        /// </summary>
-        public DateTime EndTime;
         /// <summary>
         /// Tree of files and directories that were successfully backed up. <br/>
         /// The tree root is the source directory. <br/>
