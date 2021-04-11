@@ -18,10 +18,26 @@ namespace IncrementalBackup
     }
 
     /// <summary>
-    /// Incrementally writes a backup manifest to 
+    /// Incrementally writes a backup manifest to file. <br/>
+    /// Tracks the depth-first search used to explore the backup source location. The search's current
+    /// directory is manipulated with the <see cref="PushDirectory(string)"/> and <see cref="PopDirectory"/>
+    /// methods.
     /// </summary>
+    /// <remarks>
+    /// Writing the manifest incrementally is important in case the application is prematurely terminated
+    /// due to some uncontrollable factor and we may not get a chance to save the manifest all at once.
+    /// Without the manifest written, a backup is effectively useless, as it could not be built upon in
+    /// the next backup.
+    /// </remarks>
     class BackupManifestWriter : Disposable
     {
+        /// <summary>
+        /// Constructs an instance that writes a new backup manifest the to given file. <br/>
+        /// The file is created or overwritten if it exists.
+        /// The current path is set to the backup source directory (i.e. the backup root).
+        /// </summary>
+        /// <param name="filePath">The path of the file to write.</param>
+        /// <exception cref="ManifestFileCreateException">If the manifest file can't be created/opened.</exception>
         public BackupManifestWriter(string filePath) {
             try {
                 Stream = File.CreateText(filePath);
@@ -34,6 +50,12 @@ namespace IncrementalBackup
             CurrentPath = new();
         }
 
+        /// <summary>
+        /// Changes the current directory to one of its subdirectories, and records it as backed up.
+        /// </summary>
+        /// <param name="name">The name of the subdirectory to enter. Must not be empty or contain newlines.</param>
+        /// <exception cref="ArgumentException">If <paramref name="name"/> is empty.</exception>
+        /// <exception cref="ManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PushDirectory(string name) {
             if (name.Length == 0) {
                 throw new ArgumentException("name must not be empty.", nameof(name));
@@ -48,6 +70,12 @@ namespace IncrementalBackup
             CurrentPath.Add(name);
         }
 
+        /// <summary>
+        /// Changes the current directory to its parent directory.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">If the current directory is the backup source
+        /// directory.</exception>
+        /// <exception cref="ManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PopDirectory() {
             if (CurrentPath.Count == 0) {
                 throw new InvalidOperationException("No directories to pop.");
@@ -62,6 +90,13 @@ namespace IncrementalBackup
             CurrentPath.RemoveAt(CurrentPath.Count - 1);
         }
 
+        /// <summary>
+        /// Records a file in the current directory as backed up.
+        /// </summary>
+        /// <param name="filename">The name of the file to record as backed up. Must not be empty or
+        /// contain newlines.</param>
+        /// <exception cref="ArgumentException">If <paramref name="filename"/> is empty.</exception>
+        /// <exception cref="ManifestFileIOException">If the manifest file could not be written to.</exception>
         public void WriteFile(string filename) {
             if (filename.Length == 0) {
                 throw new ArgumentException("filename must not be empty.", nameof(filename));
@@ -187,6 +222,9 @@ namespace IncrementalBackup
         public const char RECORD_FILE = 'f';
     }
 
+    /// <summary>
+    /// Indicates a manifest file operation failed.
+    /// </summary>
     abstract class ManifestFileException : ApplicationException
     {
         public ManifestFileException(string filePath, string? message = null, Exception? innerException = null) :
@@ -200,24 +238,36 @@ namespace IncrementalBackup
         public readonly string FilePath;
     }
 
+    /// <summary>
+    /// Indicates a manifest file could not be created.
+    /// </summary>
     class ManifestFileCreateException : ManifestFileException
     {
         public ManifestFileCreateException(string filePath, string? message = null, Exception? innerException = null) :
             base(filePath, message, innerException) { }
     }
 
+    /// <summary>
+    /// Indicates a manifest file operation failed due to I/O errors.
+    /// </summary>
     class ManifestFileIOException : ManifestFileException
     {
         public ManifestFileIOException(string filePath, string? message = null, Exception? innerException = null) :
             base(filePath, message, innerException) { }
     }
 
+    /// <summary>
+    /// Indicates a requested manifest file could not be found.
+    /// </summary>
     class ManifestFileNotFoundException : ManifestFileException
     {
         public ManifestFileNotFoundException(string filePath, string? message = null, Exception? innerException = null) :
             base(filePath, message, innerException) { }
     }
 
+    /// <summary>
+    /// Indicates a manifest file could not be parsed because it is not in a valid format.
+    /// </summary>
     class ManifestFileInvalidException : ManifestFileException
     {
         public ManifestFileInvalidException(string filePath, long line, string? message = null, Exception? innerException = null) :

@@ -186,7 +186,13 @@ namespace IncrementalBackup
         /// The name of the file used to store the backup index in a target directory.
         /// </summary>
         private const string INDEX_FILENAME = "index.txt";
+        /// <summary>
+        /// The name of the file used to store info at the start of each backup.
+        /// </summary>
         private const string START_INFO_FILENAME = "start.json";
+        /// <summary>
+        /// The name of the file used to store completion info for each backup.
+        /// </summary>
         private const string COMPLETE_INFO_FILENAME = "completion.json";
         /// <summary>
         /// The name of the file used to store the backup manifest for each backup.
