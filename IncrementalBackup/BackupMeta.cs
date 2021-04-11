@@ -27,7 +27,7 @@ namespace IncrementalBackup
     /// Should be normalised.</param>
     /// <param name="BeginTime">The UTC time at which the backup was initiated (just before any
     /// files were copied).</param>
-    record BackupStartInfo (
+    record BackupStartInfo(
         string SourceDirectory,
         DateTime BeginTime
     );
@@ -41,41 +41,8 @@ namespace IncrementalBackup
         DateTime EndTime
     );
 
-    /// <summary>
-    /// Results of a specific backup run. <br/>
-    /// Gets saved to the backup directory to preserve the details of the backup.
-    /// </summary>
-    class BackupManifest
-    {
-        /// <summary>
-        /// Tree of files and directories that were successfully backed up. <br/>
-        /// The tree root is the source directory. <br/>
-        /// The existence of a <see cref="DirectoryNode"/> means that directory was copied. <br/>
-        /// The existence of a <see cref="FileNode"/> means that file was copied. <br/>
-        /// </summary>
-        public DirectoryNode BackupTree = new();
-    }
-
     static class BackupMeta
     {
-        /// <summary>
-        /// The name of the file used to store the backup index in a target directory.
-        /// </summary>
-        private const string INDEX_FILENAME = "index.json";
-        /// <summary>
-        /// The name of the file used to store the backup manifest for each backup.
-        /// </summary>
-        private const string MANIFEST_FILENAME = "manifest.json";
-        /// <summary>
-        /// The length of the randomly-generated backup folder names.
-        /// </summary>
-        private const int BACKUP_DIRECTORY_NAME_LENGTH = 16;
-        /// <summary>
-        /// The number of times <see cref="CreateBackupDirectory(string)"/> will retry creation of the directory
-        /// before failing.
-        /// </summary>
-        private const int BACKUP_DIRECTORY_CREATION_RETRIES = 20;
-
         /// <summary>
         /// Reads the backup index from a target directory.
         /// </summary>
@@ -214,38 +181,26 @@ namespace IncrementalBackup
                 retries--;
             }
         }
-    }
 
-    /// <summary>
-    /// Thrown from <see cref="BackupMeta.ReadIndexFile(string)"/> on failure.
-    /// </summary>
-    class IndexFileException : ApplicationException
-    {
-        public IndexFileException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
-    }
-
-    /// <summary>
-    /// Thrown from <see cref="BackupMeta.ReadIndexFile(string)"/> when the index file does not exist.
-    /// </summary>
-    class IndexFileNotFoundException : IndexFileException
-    {
-        public IndexFileNotFoundException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
-    }
-
-    /// <summary>
-    /// Thrown from <see cref="BackupMeta.ReadManifestFile(string)"/> on failure.
-    /// </summary>
-    class ManifestFileException : ApplicationException
-    {
-        public ManifestFileException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
-    }
-
-    /// <summary>
-    /// Thrown from <see cref="BackupMeta.ReadManifestFile(string)"/> when the manifest file does not exist.
-    /// </summary>
-    class ManifestFileNotFoundException : ManifestFileException
-    {
-        public ManifestFileNotFoundException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
+        /// <summary>
+        /// The name of the file used to store the backup index in a target directory.
+        /// </summary>
+        private const string INDEX_FILENAME = "index.txt";
+        private const string START_INFO_FILENAME = "start.json";
+        private const string COMPLETE_INFO_FILENAME = "completion.json";
+        /// <summary>
+        /// The name of the file used to store the backup manifest for each backup.
+        /// </summary>
+        private const string MANIFEST_FILENAME = "manifest.txt";
+        /// <summary>
+        /// The length of the randomly-generated backup folder names.
+        /// </summary>
+        private const int BACKUP_DIRECTORY_NAME_LENGTH = 16;
+        /// <summary>
+        /// The number of times <see cref="CreateBackupDirectory(string)"/> will retry creation of the directory
+        /// before failing.
+        /// </summary>
+        private const int BACKUP_DIRECTORY_CREATION_RETRIES = 20;
     }
 
     /// <summary>

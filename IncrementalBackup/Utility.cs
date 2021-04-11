@@ -51,7 +51,6 @@ namespace IncrementalBackup
         public static bool PathContainsPath(string path1, string path2) {
             if (path1.StartsWith(path2, StringComparison.InvariantCultureIgnoreCase)) {
                 if (path1.Length == path2.Length) {
-                    // Is this correct semantics???
                     return true;
                 }
                 else {
@@ -66,5 +65,59 @@ namespace IncrementalBackup
                 return false;
             }
         }
+    }
+
+    /// <summary>
+    /// Basic implementation of <see cref="IDisposable"/> for convenience.
+    /// Simply inherit from this class and override <see cref="DisposeManaged"/> and/or <see cref="DisposeUnmanaged"/>
+    /// to implement resource disposal.
+    /// </summary>
+    abstract class Disposable : IDisposable
+    {
+        ~Disposable() =>
+            Dispose(true);
+
+        /// <summary>
+        /// Disposes of all resources held by this object. <br/>
+        /// After calling this method, the object probably should not be used.
+        /// </summary>
+        public void Dispose() {
+            Dispose(false);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Disposes of managed resources. Override this to dispose of your managed members. <br/>
+        /// If you inherit from a class which inherits from <see cref="Disposable"/>, make sure to call the superclass's
+        /// implementation too.
+        /// </summary>
+        protected virtual void DisposeManaged() { }
+
+        /// <summary>
+        /// Disposes of unmanaged resources. Override this to dispose of your unmanaged members. <br/>
+        /// If you inherit from a class which inherits from <see cref="Disposable"/>, make sure to call the superclass's
+        /// implementation too.
+        /// </summary>
+        protected virtual void DisposeUnmanaged() { }
+
+        /// <summary>
+        /// Disposes of resources held by this object, if not already disposed. <br/>
+        /// </summary>
+        /// <param name="inFinaliser">Indicates if we are currently in the finaliser. If <c>true</c>, then managed
+        /// resources are not disposed of (because they will be disposed shortly anyway).</param>
+        protected void Dispose(bool inFinaliser) {
+            if (!Disposed) {
+                if (!inFinaliser) {
+                    DisposeManaged();
+                }
+                DisposeUnmanaged();
+                Disposed = true;
+            }
+        }
+
+        /// <summary>
+        /// Indicates if resources have already been disposed of via <see cref="Dispose(bool)"/>.
+        /// </summary>
+        private bool Disposed = false;
     }
 }

@@ -11,7 +11,7 @@ namespace IncrementalBackup
         /// <summary>
         /// The name of the directory (not path).
         /// </summary>
-        public string? Name;
+        public string Name;
         /// <summary>
         /// Files directly contained in this directory.
         /// </summary>

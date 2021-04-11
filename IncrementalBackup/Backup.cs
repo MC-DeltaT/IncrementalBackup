@@ -157,7 +157,7 @@ namespace IncrementalBackup
             try {
                 logger.FileHandler = new(path);
             }
-            catch (LoggerException e) {
+            catch (LogIOException e) {
                 logger.Warning(e.Message);
                 return;
             }

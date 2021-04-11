@@ -8,7 +8,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Logs messages to the console and to file.
     /// </summary>
-    class Logger : IDisposable
+    class Logger : Disposable
     {
         public Logger(ConsoleLogHandler? consoleHandler = null, FileLogHandler? fileHandler = null) {
             ConsoleHandler = consoleHandler;
@@ -23,9 +23,6 @@ namespace IncrementalBackup
         /// Handler for logging to file. If <c>null</c>, logs will not be written to file.
         /// </summary>
         public FileLogHandler? FileHandler;
-
-        ~Logger() =>
-            Dispose(true);
 
         /// <summary>
         /// Logs a message with level <see cref="LogLevel.Info"/>.
@@ -54,128 +51,80 @@ namespace IncrementalBackup
         /// <param name="level">The level of the log message.</param>
         /// <param name="message">The message to log.</param>
         public void Log(LogLevel level, string message) {
-            LoggerException? fileException = null;
+            LogIOException? fileException = null;
             try {
                 FileHandler?.Log(level, message);
             }
-            catch (LoggerException e) {
+            catch (LogIOException e) {
                 fileException = e;
             }
-            LoggerException? consoleException = null;
+            LogIOException? consoleException = null;
             try {
                 ConsoleHandler?.Log(level, message);
             }
-            catch (LoggerException e) {
+            catch (LogIOException e) {
                 consoleException = e;
             }
             if (fileException != null) {
-                ConsoleHandler?.Log(LogLevel.Warning, fileException.Message);
+                ConsoleHandler?.Log(LogLevel.Warning, "Failed to log to file: I/O error.");
             }
             if (consoleException != null) {
-                FileHandler?.Log(LogLevel.Warning, consoleException.Message);
+                FileHandler?.Log(LogLevel.Warning, "Failed to log to console: I/O error.");
             }
         }
 
-        /// <summary>
-        /// Disposes of all resources held by this object. <br/>
-        /// After calling this method, the object should not be used.
-        /// </summary>
-        public void Dispose() {
-            Dispose(false);
-            GC.SuppressFinalize(this);
+        protected override void DisposeManaged() {
+            FileHandler?.Dispose();
+            base.DisposeManaged();
         }
-
-        /// <summary>
-        /// Disposes of resources held by this object, if not already disposed. <br/>
-        /// </summary>
-        /// <param name="finalising">Indicates if we are currently in the finaliser. If <c>true</c>, then managed
-        /// resources are not disposed of (because they will be disposed shortly anyway).</param>
-        protected virtual void Dispose(bool finalising) {
-            if (!Disposed) {
-                if (!finalising) {
-                    FileHandler?.Dispose();
-                }
-                Disposed = true;
-            }
-        }
-
-        /// <summary>
-        /// Indicates if resources have already been disposed of via <see cref="Dispose(bool)"/>.
-        /// </summary>
-        private bool Disposed = false;
     }
 
     /// <summary>
     /// Logs messages to a file.
     /// </summary>
-    class FileLogHandler : IDisposable
+    class FileLogHandler : Disposable
     {
         /// <summary>
         /// Creates a handler that logs to a file at the given path. <br/>
         /// The file is created new or overwritten if it exists.
         /// </summary>
         /// <param name="path">The file to log messages to.</param>
-        /// <exception cref="LoggerException">If the file could not be opened.</exception>
+        /// <exception cref="LogIOException">If the file could not be opened.</exception>
         public FileLogHandler(string path) {
             try {
                 Stream = File.CreateText(path);
             }
-            catch (Exception e) when (e is ArgumentException || e is DirectoryNotFoundException || e is NotSupportedException
-                || e is PathTooLongException || e is UnauthorizedAccessException) {
-                throw new LoggerException($"Failed to create log file: {e.Message}", e);
+            catch (Exception e) when (e is ArgumentException or DirectoryNotFoundException or NotSupportedException
+                or PathTooLongException or UnauthorizedAccessException) {
+                throw new LogIOException(innerException: e);
             }
         }
-
-        ~FileLogHandler() =>
-            Dispose(true);
 
         /// <summary>
         /// Logs a message to the associated file.
         /// </summary>
         /// <param name="level">The level of the message.</param>
         /// <param name="message">The message to log.</param>
-        /// <exception cref="LoggerException">If the message could not be written to the file due to I/O errors.</exception>
+        /// <exception cref="LogIOException">If the message could not be written to the file due to I/O errors.</exception>
         public void Log(LogLevel level, string message) {
             try {
                 Stream.Write(LogFormatter.FormatMessage(level, message));
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new LoggerException($"Failed to write log to file: {e.Message}", e);
+                throw new LogIOException(innerException: e);
             }
         }
 
-        /// <summary>
-        /// Disposes of all resources held by this object. <br/>
-        /// After calling this method, the object should not be used.
-        /// </summary>
-        public void Dispose() {
-            Dispose(false);
-            GC.SuppressFinalize(this);
-        }
-
-        /// <summary>
-        /// Disposes of resources held by this object, if not already disposed. <br/>
-        /// </summary>
-        /// <param name="finalising">Indicates if we are currently in the finaliser. If <c>true</c>, then managed
-        /// resources are not disposed of (because they will be disposed shortly anyway).</param>
-        protected virtual void Dispose(bool finalising) {
-            if (!Disposed) {
-                if (!finalising) {
-                    Stream.Dispose();
-                }
-                Disposed = true;
-            }
+        protected override void DisposeManaged() {
+            Stream.Dispose();
+            base.DisposeManaged();
         }
 
         /// <summary>
         /// The stream which writes to the log file.
         /// </summary>
         private readonly StreamWriter Stream;
-        /// <summary>
-        /// Indicates if resources have already been disposed of via <see cref="Dispose(bool)"/>.
-        /// </summary>
-        private bool Disposed = false;
     }
 
     /// <summary>
@@ -189,14 +138,14 @@ namespace IncrementalBackup
         /// <param name="level">The level of the message. If <see cref="LogLevel.Error"/>, the message is logged
         /// to <see cref="Console.Error"/>. Otherwise, it is logged to <see cref="Console.Out"/>.</param>
         /// <param name="message">The message to log.</param>
-        /// <exception cref="LoggerException">If the message could not be written to the console due to I/O errors.</exception>
+        /// <exception cref="LogIOException">If the message could not be written to the console due to I/O errors.</exception>
         public void Log(LogLevel level, string message) {
             var consoleStream = level == LogLevel.Error ? Console.Error : Console.Out;
             try {
                 consoleStream.Write(LogFormatter.FormatMessage(level, message));
             }
             catch (IOException e) {
-                throw new LoggerException($"Failed to write log to console: {e.Message}", e);
+                throw new LogIOException(innerException: e);
             }
         }
     }
@@ -245,10 +194,10 @@ namespace IncrementalBackup
     }
 
     /// <summary>
-    /// Thrown from logging functionality.
+    /// Thrown from log handlers to indicate an I/O error on the underlying medium.
     /// </summary>
-    class LoggerException : ApplicationException
+    class LogIOException : ApplicationException
     {
-        public LoggerException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
+        public LogIOException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
     }
 }
