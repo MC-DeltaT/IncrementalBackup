@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security;
+using System.Text;
 
 
 namespace IncrementalBackup
@@ -15,6 +17,111 @@ namespace IncrementalBackup
         /// The tree root is the source directory. <br/>
         /// </summary>
         public DirectoryNode Root = new() { Name = "root" };
+    }
+
+    static class BackupManifestReader
+    {
+        /// <summary>
+        /// Reads a backup manifest from file.
+        /// </summary>
+        /// <param name="filePath">The path to the manifest file.</param>
+        /// <returns>The read backup manifest.</returns>
+        /// <exception cref="BackupManifestFileIOException">If a filesystem error occurs during reading.</exception>
+        /// <exception cref="BackupManifestFileParseException">If the file is not a valid backup manifest.</exception>
+        public static BackupManifest Read(string filePath) {
+            using var stream = OpenFile(filePath);
+
+            BackupManifest manifest = new();
+            List<DirectoryNode> directoryStack = new() { manifest.Root };
+
+            long lineNum = 0;
+            while (true) {
+                string? line;
+                try {
+                    line = stream.ReadLine();
+                }
+                catch (IOException e) {
+                    throw new BackupManifestFileIOException(filePath, new FilesystemException(filePath, e.Message));
+                }
+
+                if (line == null) {
+                    break;
+                }
+                lineNum++;
+
+                if (line.Length == 0) {
+                    continue;
+                }
+
+                if (line.Length < 2 || line[1] != BackupManifestFileConstants.SEPARATOR) {
+                    throw new BackupManifestFileParseException(filePath, lineNum);
+                }
+                switch (line[0]) {
+                    case BackupManifestFileConstants.PUSH_DIRECTORY: {
+                            if (line.Length <= 2) {
+                                throw new BackupManifestFileParseException(filePath, lineNum);
+                            }
+                            var directoryName = line[2..];
+                            // Shouldn't occur in practice, but we will allow entering a subdirectory more than once,
+                            // there shouldn't be any issues with it.
+                            var existingNode = directoryStack[^1].Subdirectories.Find(
+                                d => string.Compare(d.Name, directoryName, true) == 0);
+                            if (existingNode == null) {
+                                DirectoryNode newNode = new() { Name = directoryName };
+                                directoryStack[^1].Subdirectories.Add(newNode);
+                                directoryStack.Add(newNode);
+                            }
+                            else {
+                                directoryStack.Add(existingNode);
+                            }
+                            break;
+                        }
+                    case BackupManifestFileConstants.POP_DIRECTORY: {
+                            if (line.Length > 2) {
+                                throw new BackupManifestFileParseException(filePath, lineNum);
+                            }
+                            if (directoryStack.Count <= 1) {
+                                throw new BackupManifestFileParseException(filePath, lineNum);
+                            }
+                            directoryStack.RemoveAt(directoryStack.Count - 1);
+                            break;
+                        }
+                    case BackupManifestFileConstants.RECORD_FILE: {
+                            if (line.Length <= 2) {
+                                throw new BackupManifestFileParseException(filePath, lineNum);
+                            }
+                            var filename = line[2..];
+                            // Technically we should check if the file has already been read, but in practice there
+                            // shouldn't be any duplicate files, and duplicates shouldn't cause any issues, so we
+                            // won't do any checks for performance reasons.
+                            directoryStack[^1].Files.Add(filename);
+                            break;
+                        }
+                    default:
+                        throw new BackupManifestFileParseException(filePath, lineNum);
+                }
+            }
+
+            return manifest;
+        }
+
+        /// <summary>
+        /// Opens a backup manifest file for reading.
+        /// </summary>
+        /// <param name="filePath">The path to the manifest file.</param>
+        /// <returns>A new <see cref="StreamReader"/> associated with the file.</returns>
+        /// <exception cref="BackupManifestFileIOException">If the file could not be opened.</exception>
+        private static StreamReader OpenFile(string filePath) {
+            try {
+                return new(filePath, new UTF8Encoding(false, true));
+            }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException) {
+                throw new BackupManifestFileIOException(filePath, new InvalidPathException(filePath));
+            }
+            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
+                throw new BackupManifestFileIOException(filePath, new PathNotFoundException(filePath));
+            }
+        }
     }
 
     /// <summary>
@@ -37,14 +144,20 @@ namespace IncrementalBackup
         /// The current path is set to the backup source directory (i.e. the backup root).
         /// </summary>
         /// <param name="filePath">The path of the file to write.</param>
-        /// <exception cref="ManifestFileCreateException">If the manifest file can't be created/opened.</exception>
+        /// <exception cref="BackupManifestFileIOException">If the manifest file can't be created/opened.
+        /// </exception>
         public BackupManifestWriter(string filePath) {
             try {
-                Stream = File.CreateText(filePath);
+                Stream = new(filePath, false, new UTF8Encoding(false, true));
             }
-            catch (Exception e) when (e is ArgumentException or DirectoryNotFoundException or NotSupportedException
-                or PathTooLongException or UnauthorizedAccessException) {
-                throw new ManifestFileCreateException(filePath, innerException: e);
+            catch (DirectoryNotFoundException) {
+                throw new BackupManifestFileIOException(filePath, new PathNotFoundException(filePath));
+            }
+            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
+                throw new BackupManifestFileIOException(filePath, new PathAccessDeniedException(filePath));
+            }
+            catch (Exception e) when (e is IOException or ArgumentException) {
+                throw new BackupManifestFileIOException(filePath, new InvalidPathException(filePath));
             }
             FilePath = filePath;
             CurrentPath = new();
@@ -55,17 +168,22 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="name">The name of the subdirectory to enter. Must not be empty or contain newlines.</param>
         /// <exception cref="ArgumentException">If <paramref name="name"/> is empty.</exception>
-        /// <exception cref="ManifestFileIOException">If the manifest file could not be written to.</exception>
+        /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PushDirectory(string name) {
             if (name.Length == 0) {
-                throw new ArgumentException("name must not be empty.", nameof(name));
+                throw new ArgumentException($"{nameof(name)} must not be empty.", nameof(name));
             }
+            if (name.ContainsNewlines()) {
+                throw new ArgumentException($"{nameof(name)} must not contain newlines", nameof(name));
+            }
+
             try {
-                Stream.WriteLine($"{BackupManifestFileCommands.PUSH_DIRECTORY};{name}");
+                var line = $"{BackupManifestFileConstants.PUSH_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}{name}";
+                Stream.WriteLine(line);
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new ManifestFileIOException(FilePath, innerException: e);
+                throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
             }
             CurrentPath.Add(name);
         }
@@ -75,17 +193,18 @@ namespace IncrementalBackup
         /// </summary>
         /// <exception cref="InvalidOperationException">If the current directory is the backup source
         /// directory.</exception>
-        /// <exception cref="ManifestFileIOException">If the manifest file could not be written to.</exception>
+        /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PopDirectory() {
             if (CurrentPath.Count == 0) {
                 throw new InvalidOperationException("No directories to pop.");
             }
             try {
-                Stream.WriteLine($"{BackupManifestFileCommands.POP_DIRECTORY};");
+                var line = $"{BackupManifestFileConstants.POP_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}";
+                Stream.WriteLine(line);
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new ManifestFileIOException(FilePath, innerException: e);
+                throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
             }
             CurrentPath.RemoveAt(CurrentPath.Count - 1);
         }
@@ -96,17 +215,22 @@ namespace IncrementalBackup
         /// <param name="filename">The name of the file to record as backed up. Must not be empty or
         /// contain newlines.</param>
         /// <exception cref="ArgumentException">If <paramref name="filename"/> is empty.</exception>
-        /// <exception cref="ManifestFileIOException">If the manifest file could not be written to.</exception>
+        /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void WriteFile(string filename) {
             if (filename.Length == 0) {
-                throw new ArgumentException("filename must not be empty.", nameof(filename));
+                throw new ArgumentException($"{nameof(filename)} must not be empty.", nameof(filename));
             }
+            if (filename.ContainsNewlines()) {
+                throw new ArgumentException($"{nameof(filename)} must not contain newlines", nameof(filename));
+            }
+
             try {
-                Stream.WriteLine($"{BackupManifestFileCommands.RECORD_FILE};{filename}");
+                var line = $"{BackupManifestFileConstants.RECORD_FILE}{BackupManifestFileConstants.SEPARATOR}{filename}";
+                Stream.WriteLine(line);
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new ManifestFileIOException(FilePath, innerException: e);
+                throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
             }
         }
 
@@ -115,163 +239,66 @@ namespace IncrementalBackup
             base.DisposeManaged();
         }
 
+        /// <summary>
+        /// The path of the manifest file being written to. Kept in case it's needed for error information.
+        /// </summary>
         private readonly string FilePath;
+        /// <summary>
+        /// Writes to the manifest file.
+        /// </summary>
         private readonly StreamWriter Stream;
+        /// <summary>
+        /// The stack of directories representing the current path being explored in the backup source directory. <br/>
+        /// The stack is relative to the backup source directory, i.e. empty stack represents the source directory
+        /// itself.
+        /// </summary>
         private readonly List<string> CurrentPath;
     }
 
-    static class BackupManifestReader
-    {
-        /// <summary>
-        /// Reads a backup manifest from file.
-        /// </summary>
-        /// <param name="filePath">The path to the manifest file.</param>
-        /// <returns>The read backup manifest.</returns>
-        /// <exception cref="ManifestFileNotFoundException">If the specified file doesn't exist.</exception>
-        /// <exception cref="ManifestFileIOException">If a file I/O error occurs during reading.</exception>
-        /// <exception cref="ManifestFileInvalidException">If the file is not a valid backup manifest.</exception>
-        public static BackupManifest Read(string filePath) {
-            using var stream = OpenFile(filePath);
-
-            BackupManifest manifest = new();
-            List<DirectoryNode> directoryStack = new() { manifest.Root };
-
-            long lineNum = 0;
-            while (true) {
-                string? line;
-                try {
-                    line = stream.ReadLine();
-                }
-                catch (IOException e) {
-                    throw new ManifestFileIOException(filePath, innerException: e);
-                }
-
-                if (line == null) {
-                    break;
-                }
-                lineNum++;
-
-                if (line.Length == 0) {
-                    continue;
-                }
-
-                if (line.Length < 2 || line[1] != ';') {
-                    throw new ManifestFileInvalidException(filePath, lineNum);
-                }
-                switch (line[0]) {
-                    case BackupManifestFileCommands.PUSH_DIRECTORY: {
-                            if (line.Length <= 2) {
-                                throw new ManifestFileInvalidException(filePath, lineNum);
-                            }
-                            var directoryName = line[2..];
-                            DirectoryNode newNode = new() { Name = directoryName };
-                            directoryStack[^1].Subdirectories.Add(newNode);
-                            directoryStack.Add(newNode);
-                            break;
-                        }
-                    case BackupManifestFileCommands.POP_DIRECTORY: {
-                            if (line.Length > 2) {
-                                throw new ManifestFileInvalidException(filePath, lineNum);
-                            }
-                            if (directoryStack.Count == 1) {
-                                throw new ManifestFileInvalidException(filePath, lineNum);
-                            }
-                            directoryStack.RemoveAt(directoryStack.Count - 1);
-                            break;
-                        }
-                    case BackupManifestFileCommands.RECORD_FILE: {
-                            if (line.Length <= 2) {
-                                throw new ManifestFileInvalidException(filePath, lineNum);
-                            }
-                            var filename = line[2..];
-                            directoryStack[^1].Files.Add(filename);
-                            break;
-                        }
-                    default:
-                        throw new ManifestFileInvalidException(filePath, lineNum);
-                }
-            }
-
-            return manifest;
-        }
-
-        /// <summary>
-        /// Opens a manifest file for reading.
-        /// </summary>
-        /// <param name="filePath">The path to the manifest file.</param>
-        /// <returns>A new <see cref="StreamReader"/> associated with the file.</returns>
-        /// <exception cref="ManifestFileNotFoundException">If the file path doesn't exist.</exception>
-        /// <exception cref="ManifestFileIOException">If the file could not be opened for some other reason.</exception>
-        private static StreamReader OpenFile(string filePath) {
-            try {
-                return new(filePath);
-            }
-            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
-                throw new ManifestFileNotFoundException(filePath, innerException: e);
-            }
-            catch (IOException e) {
-                throw new ManifestFileIOException(filePath, innerException: e);
-            }
-        }
-    }
-
-    static class BackupManifestFileCommands
+    static class BackupManifestFileConstants
     {
         public const char PUSH_DIRECTORY = 'd';
         public const char POP_DIRECTORY = 'p';
         public const char RECORD_FILE = 'f';
+        public const char SEPARATOR = ';';
     }
 
     /// <summary>
-    /// Indicates a manifest file operation failed.
+    /// Indicates a backup manifest file operation failed.
     /// </summary>
-    abstract class ManifestFileException : ApplicationException
+    abstract class BackupManifestFileException : Exception
     {
-        public ManifestFileException(string filePath, string? message = null, Exception? innerException = null) :
+        public BackupManifestFileException(string filePath, string message, Exception? innerException) :
             base(message, innerException) {
             FilePath = filePath;
         }
 
         /// <summary>
-        /// Path of the manifest file that was being accessed.
+        /// Path of the backup manifest file that was being accessed.
         /// </summary>
         public readonly string FilePath;
     }
 
     /// <summary>
-    /// Indicates a manifest file could not be created.
+    /// Indicates a backup manifest file operation failed due to filesystem-related errors.
     /// </summary>
-    class ManifestFileCreateException : ManifestFileException
+    class BackupManifestFileIOException : BackupManifestFileException
     {
-        public ManifestFileCreateException(string filePath, string? message = null, Exception? innerException = null) :
-            base(filePath, message, innerException) { }
+        public BackupManifestFileIOException(string filePath, FilesystemException innerException) :
+            base(filePath, $"Failed to access backup manifest file \"{filePath}\"", innerException) { }
+
+        public new FilesystemException InnerException {
+            get => (FilesystemException)base.InnerException;
+        }
     }
 
     /// <summary>
-    /// Indicates a manifest file operation failed due to I/O errors.
+    /// Indicates a backup manifest file could not be parsed because it is not in a valid format.
     /// </summary>
-    class ManifestFileIOException : ManifestFileException
+    class BackupManifestFileParseException : BackupManifestFileException
     {
-        public ManifestFileIOException(string filePath, string? message = null, Exception? innerException = null) :
-            base(filePath, message, innerException) { }
-    }
-
-    /// <summary>
-    /// Indicates a requested manifest file could not be found.
-    /// </summary>
-    class ManifestFileNotFoundException : ManifestFileException
-    {
-        public ManifestFileNotFoundException(string filePath, string? message = null, Exception? innerException = null) :
-            base(filePath, message, innerException) { }
-    }
-
-    /// <summary>
-    /// Indicates a manifest file could not be parsed because it is not in a valid format.
-    /// </summary>
-    class ManifestFileInvalidException : ManifestFileException
-    {
-        public ManifestFileInvalidException(string filePath, long line, string? message = null, Exception? innerException = null) :
-            base(filePath, message, innerException) {
+        public BackupManifestFileParseException(string filePath, long line) :
+            base(filePath, $"Failed to parse backup manifest file \"{filePath}\"", null) {
             Line = line;
         }
 

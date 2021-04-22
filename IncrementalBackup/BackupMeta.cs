@@ -1,203 +1,119 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security;
-using System.Text.Json;
 
 
 namespace IncrementalBackup
 {
     /// <summary>
-    /// Indexes all the backups present in a target directory. <br/>
-    /// Gets saved to the target directory to indicate what backups exist.
+    /// Functionality for the file and directory structure of backups.
     /// </summary>
-    class BackupIndex
-    {
-        /// <summary>
-        /// Maps backup directory names to the source directory used in the backup. <br/>
-        /// The source directories should be normalised.
-        /// </summary>
-        public Dictionary<string, string> Backups = new();
-    }
-
-    /// <summary>
-    /// Information written to the backup directory at the start of a backup.
-    /// </summary>
-    /// <param name="SourceDirectory">The path of the directory that was backed up.
-    /// Should be normalised.</param>
-    /// <param name="BeginTime">The UTC time at which the backup was initiated (just before any
-    /// files were copied).</param>
-    record BackupStartInfo(
-        string SourceDirectory,
-        DateTime BeginTime
-    );
-
-    /// <summary>
-    /// Information written to the backup directory at the end of a backup.
-    /// </summary>
-    /// <param name="EndTime">The UTC time at which the backup was completed (just after the last
-    /// file was copied).</param>
-    record BackupCompleteInfo(
-        DateTime EndTime
-    );
-
     static class BackupMeta
     {
-        /// <summary>
-        /// Reads the backup index from a target directory.
-        /// </summary>
-        /// <remarks>
-        /// The filename read from is given by <see cref="INDEX_FILENAME"/>.
-        /// </remarks>
-        /// <param name="targetDirectory">The target directory to read the index from.</param>
-        /// <returns>The read <see cref="BackupIndex"/>.</returns>
-        /// <exception cref="IndexFileNotFoundException">If the index file does not exist (including if
-        /// <paramref name="targetDirectory"/> does not exist).</exception>
-        /// <exception cref="IndexFileException">If the index file could not be read due to I/O errors,
-        /// permission errors, etc., or the file is malformed.</exception>
-        public static BackupIndex ReadIndexFile(string targetDirectory) {
-            var indexPath = Path.Join(targetDirectory, INDEX_FILENAME);
-
-            BackupIndex? index;
-            try {
-                index = JsonSerializer.Deserialize<BackupIndex>(File.ReadAllBytes(indexPath));
-            }
-            catch (Exception e) when (e is DirectoryNotFoundException || e is FileNotFoundException) {
-                throw new IndexFileNotFoundException(innerException: e);
-            }
-            catch (IOException e) {
-                throw new IndexFileException(e.Message, e);
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException || e is SecurityException) {
-                throw new IndexFileException("Access denied.", e);
-            }
-            catch (JsonException e) {
-                throw new IndexFileException("Malformed contents.", e);
-            }
-
-            if (index == null) {
-                throw new IndexFileException("Malformed contents.");
-            }
-            else {
-                return index;
-            }
-        }
-
-        /// <summary>
-        /// Reads the backup manifest from a backup directory.
-        /// </summary>
-        /// <remarks>
-        /// The filename read from is given by <see cref="MANIFEST_FILENAME"/>.
-        /// </remarks>
-        /// <param name="backupDirectory">The backup directory to read the manifest from.</param>
-        /// <returns>The read <see cref="BackupManifest"/> instance.</returns>
-        /// <exception cref="ManifestFileNotFoundException">If the manifest file does not exist (including if
-        /// <paramref name="backupDirectory"/> does not exist).</exception>
-        /// <exception cref="ManifestFileException">If the manifest file could not be read due to I/O errors,
-        /// permission errors, etc., or the file is malformed.</exception>
-        public static BackupManifest ReadManifestFile(string backupDirectory) {
-            var manifestPath = Path.Join(backupDirectory, MANIFEST_FILENAME);
-
-            BackupManifest? manifest;
-            try {
-                manifest = JsonSerializer.Deserialize<BackupManifest>(File.ReadAllBytes(manifestPath));
-            }
-            catch (Exception e) when (e is DirectoryNotFoundException || e is FileNotFoundException) {
-                throw new ManifestFileNotFoundException(innerException: e);
-            }
-            catch (IOException e) {
-                throw new ManifestFileException(e.Message, e);
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException || e is SecurityException) {
-                throw new ManifestFileException("Access denied.", e);
-            }
-            catch (JsonException e) {
-                throw new ManifestFileException("Malformed contents.", e);
-            }
-
-            if (manifest == null) {
-                throw new ManifestFileException("Malformed contents.");
-            }
-            else {
-                return manifest;
-            }
-        }
-
-        /// <summary>
-        /// Writes a backup manifest to file in a backup directory.
-        /// </summary>
-        /// <remarks>
-        /// The filename written to is given by <see cref="MANIFEST_FILENAME"/>
-        /// </remarks>
-        /// <param name="manifest">The <see cref="BackupManifest"/> to write.</param>
-        /// <param name="backupDirectory">The directory in which to write the manifest file.</param>
-        /// <exception cref="ManifestFileException">If the file cannot be written due to I/O errors,
-        /// permission errors, etc.</exception>
-        public static void WriteManifestFile(BackupManifest manifest, string backupDirectory) {
-            var manifestPath = Path.Join(backupDirectory, MANIFEST_FILENAME);
-            try {
-                using var stream = File.Create(manifestPath);
-                var json = JsonSerializer.SerializeToUtf8Bytes(manifest);
-                stream.Write(json);
-            }
-            catch (Exception e) when (e is ArgumentException || e is NotSupportedException) {
-                throw new ManifestFileException("Path is invalid.", e);
-            }
-            catch (IOException e) {
-                throw new ManifestFileException(e.Message, e);
-            }
-            catch (UnauthorizedAccessException e) {
-                throw new ManifestFileException("Access denied.", e);
-            }
-        }
-
         /// <summary>
         /// Creates a new randomly-named backup directory in the given directory.
         /// </summary>
         /// <param name="targetDirectory">The directory in which to create the backup directory.</param>
         /// <returns>The path to the new backup directory.</returns>
-        /// <exception cref="CreateBackupDirectoryException">If the new directory could not be created, due to
-        /// I/O errors, permission errors, etc.</exception>
+        /// <exception cref="BackupDirectoryCreateException">If the new directory could not be created, due to I/O
+        /// errors, permission errors, etc.</exception>
         public static string CreateBackupDirectory(string targetDirectory) {
             var retries = BACKUP_DIRECTORY_CREATION_RETRIES;
+            List<string> attemptedDirectories = new();
             while (true) {
                 var name = Utility.RandomAlphaNumericString(BACKUP_DIRECTORY_NAME_LENGTH);
+                attemptedDirectories.Add(name);
+
                 var path = Path.Join(targetDirectory, name);
-                Exception? exception = null;
+
+                FilesystemException? exception = null;
                 // Non-atomicity :|
                 if (!Directory.Exists(path) && !File.Exists(path)) {
                     try {
                         Directory.CreateDirectory(path);
                         return path;
                     }
-                    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException
-                            || e is NotSupportedException) {
-                        exception = e;
+                    catch (Exception e) when (e is ArgumentException or PathTooLongException or NotSupportedException) {
+                        exception = new InvalidPathException(path);
+                    }
+                    catch (DirectoryNotFoundException) {
+                        exception = new PathNotFoundException(path);
+                    }
+                    catch (UnauthorizedAccessException) {
+                        exception = new PathAccessDeniedException(path);
+                    }
+                    catch (IOException e) {
+                        exception = new FilesystemException(path, e.Message);
                     }
                 }
+
                 if (retries <= 0) {
-                    throw new CreateBackupDirectoryException(innerException: exception);
+                    throw new BackupDirectoryCreateException(targetDirectory, attemptedDirectories, exception);
                 }
                 retries--;
             }
         }
 
         /// <summary>
+        /// Forms the path to a backup index file.
+        /// </summary>
+        /// <param name="targetDirectory">The path of the target directory the index file is in.</param>
+        /// <returns>The path to the backup index file.</returns>
+        public static string IndexFilePath(string targetDirectory) =>
+            Path.Join(targetDirectory, INDEX_FILENAME);
+
+        /// <summary>
+        /// Forms the path to a backup manifest file.
+        /// </summary>
+        /// <param name="backupDirectory">The path of the backup directory the manifest file is in.</param>
+        /// <returns>The path to the backup manifest file.</returns>
+        public static string ManifestFilePath(string backupDirectory) =>
+            Path.Join(backupDirectory, MANIFEST_FILENAME);
+
+        /// <summary>
+        /// Forms the path to a backup start info file.
+        /// </summary>
+        /// <param name="backupDirectory">The path of the backup directory the start info file is in.</param>
+        /// <returns>The path to the backup start info file.</returns>
+        public static string StartInfoFilePath(string backupDirectory) =>
+            Path.Join(backupDirectory, START_INFO_FILENAME);
+
+        /// <summary>
+        /// Forms the path to a backup completion info file.
+        /// </summary>
+        /// <param name="backupDirectory">The path of the backup directory the completion info file is in.</param>
+        /// <returns>The path to the backup completion info file.</returns>
+        public static string CompleteInfoFilePath(string backupDirectory) =>
+            Path.Join(backupDirectory, COMPLETE_INFO_FILENAME);
+
+        /// <summary>
+        /// Forms the path to the data directory within a backup directory.
+        /// </summary>
+        /// <param name="backupDirectory">The path of the backup directory.</param>
+        /// <returns>The path to the backup data directory.</returns>
+        public static string BackupDataPath(string backupDirectory) =>
+            Path.Join(backupDirectory, DATA_DIRECTORY);
+
+        /// <summary>
         /// The name of the file used to store the backup index in a target directory.
         /// </summary>
-        private const string INDEX_FILENAME = "index.txt";
-        /// <summary>
-        /// The name of the file used to store info at the start of each backup.
-        /// </summary>
-        private const string START_INFO_FILENAME = "start.json";
-        /// <summary>
-        /// The name of the file used to store completion info for each backup.
-        /// </summary>
-        private const string COMPLETE_INFO_FILENAME = "completion.json";
+        public const string INDEX_FILENAME = "index.txt";
         /// <summary>
         /// The name of the file used to store the backup manifest for each backup.
         /// </summary>
-        private const string MANIFEST_FILENAME = "manifest.txt";
+        public const string MANIFEST_FILENAME = "manifest.txt";
+        /// <summary>
+        /// The name of the file used to store info at the start of each backup.
+        /// </summary>
+        public const string START_INFO_FILENAME = "start.json";
+        /// <summary>
+        /// The name of the file used to store completion info for each backup.
+        /// </summary>
+        public const string COMPLETE_INFO_FILENAME = "completion.json";
+        /// <summary>
+        /// The name of the directory in the backup directory used to store the backed up files.
+        /// </summary>
+        public const string DATA_DIRECTORY = "data";
         /// <summary>
         /// The length of the randomly-generated backup folder names.
         /// </summary>
@@ -212,8 +128,51 @@ namespace IncrementalBackup
     /// <summary>
     /// Thrown from <see cref="BackupMeta.CreateBackupDirectory(string)"/> on failure.
     /// </summary>
-    class CreateBackupDirectoryException : ApplicationException
+    class BackupDirectoryCreateException : Exception
     {
-        public CreateBackupDirectoryException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
+        public BackupDirectoryCreateException(string targetDirectory, IReadOnlyList<string> attemptedDirectoryNames,
+                FilesystemException? innerException) :
+            base($"Failed to create backup directory in \"{targetDirectory}\"", innerException) {
+            TargetDirectory = targetDirectory;
+            AttemptedDirectoryNames = attemptedDirectoryNames;
+        }
+
+        /// <summary>
+        /// The exception produced from trying the last directory name.
+        /// </summary>
+        public new FilesystemException? InnerException {
+            get => base.InnerException as FilesystemException;
+        }
+
+        /// <summary>
+        /// The target directory in which the new backup directory was being created.
+        /// </summary>
+        public string TargetDirectory;
+
+        /// <summary>
+        /// The new backup directory names which were tried (and failed).
+        /// </summary>
+        public IReadOnlyList<string> AttemptedDirectoryNames;
+    }
+
+    /// <summary>
+    /// Indicates that some backup metadata (e.g. backup index, start info file, etc.) contradicts some other backup
+    /// metadata.
+    /// </summary>
+    /// <remarks>
+    /// Such inconsistency should never occur in practice, if the application works correctly. <br/>
+    /// However, it is possible and probably shouldn't be ignored if it is detected.
+    /// </remarks>
+    class InconsistentBackupMetadataException : Exception
+    {
+        public InconsistentBackupMetadataException(string backupDirectory, string message) :
+            base(message) {
+            BackupDirectory = backupDirectory;
+        }
+
+        /// <summary>
+        /// The path of the backup directory whose metadata is inconsistent.
+        /// </summary>
+        public readonly string BackupDirectory;
     }
 }

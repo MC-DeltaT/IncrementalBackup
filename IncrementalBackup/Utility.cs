@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 
@@ -9,7 +10,7 @@ namespace IncrementalBackup
     /// </summary>
     static class Utility
     {
-        public static Random RandomEngine = new(unchecked((int)(13L * DateTime.UtcNow.Ticks)));
+        public static Random RandomEngine = new(unchecked((int)(7451L * DateTime.UtcNow.Ticks)));
 
         /// <summary>
         /// Creates a pseudorandom sequence of alphabetic and numeric characters of the given length. <br/>
@@ -20,10 +21,10 @@ namespace IncrementalBackup
         /// <exception cref="ArgumentException">If <paramref name="length"/> is &lt; 0.</exception>
         public static string RandomAlphaNumericString(int length) {
             if (length < 0) {
-                throw new ArgumentException("length must be >= 0.");
+                throw new ArgumentException($"{nameof(length)} must be >= 0.", nameof(length));
             }
 
-            var characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            const string characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
             var result = new char[length];
             for (int i = 0; i < length; ++i) {
                 result[i] = characters[RandomEngine.Next() % characters.Length];
@@ -58,7 +59,8 @@ namespace IncrementalBackup
 
                     // Take care of the cases like: path1="C:\foo" path2="C:\foobar"
                     var nonMatchingChar = path1[path2.Length];
-                    return nonMatchingChar == Path.DirectorySeparatorChar || nonMatchingChar == Path.AltDirectorySeparatorChar;
+                    return nonMatchingChar == Path.DirectorySeparatorChar
+                        || nonMatchingChar == Path.AltDirectorySeparatorChar;
                 }
             }
             else {
@@ -119,5 +121,42 @@ namespace IncrementalBackup
         /// Indicates if resources have already been disposed of via <see cref="Dispose(bool)"/>.
         /// </summary>
         private bool Disposed = false;
+    }
+
+    static class StringExtensions
+    {
+        /// <summary>
+        /// Checks if this string contains any newline characters (\n or \r).
+        /// </summary>
+        /// <returns><c>true</c> if the string contains newline characters, otherwise <c>false</c>.</returns>
+        public static bool ContainsNewlines(this string str) {
+            for (int i = 0; i < str.Length; i++) {
+                if (str[i] is '\n' or '\r') {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    static class ExceptionExtensions
+    {
+        /// <summary>
+        /// Creates a detailed message by combining the messages from an exception and its nested exceptions.
+        /// </summary>
+        /// <param name="exception">The exception to create the detailed message from.</param>
+        /// <returns>The detailed exception message.</returns>
+        public static string DetailedMessage(this Exception exception) {
+            static IEnumerable<string> WalkMessages(Exception? exception) {
+                while (exception != null) {
+                    if (exception.Message != string.Empty) {
+                        yield return exception.Message;
+                    }
+                    exception = exception.InnerException;
+                }
+            }
+
+            return string.Join(": ", WalkMessages(exception));
+        }
     }
 }

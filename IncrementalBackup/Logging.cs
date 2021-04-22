@@ -10,7 +10,7 @@ namespace IncrementalBackup
     /// </summary>
     class Logger : Disposable
     {
-        public Logger(ConsoleLogHandler? consoleHandler = null, FileLogHandler? fileHandler = null) {
+        public Logger(ConsoleLogHandler? consoleHandler, FileLogHandler? fileHandler) {
             ConsoleHandler = consoleHandler;
             FileHandler = fileHandler;
         }
@@ -51,31 +51,64 @@ namespace IncrementalBackup
         /// <param name="level">The level of the log message.</param>
         /// <param name="message">The message to log.</param>
         public void Log(LogLevel level, string message) {
-            LogIOException? fileException = null;
+            LoggingException? fileException = null;
             try {
                 FileHandler?.Log(level, message);
             }
-            catch (LogIOException e) {
+            catch (LoggingException e) {
                 fileException = e;
             }
-            LogIOException? consoleException = null;
+
+            LoggingException? consoleException = null;
             try {
                 ConsoleHandler?.Log(level, message);
             }
-            catch (LogIOException e) {
+            catch (LoggingException e) {
                 consoleException = e;
             }
+
             if (fileException != null) {
-                ConsoleHandler?.Log(LogLevel.Warning, "Failed to log to file: I/O error.");
+                try {
+                    ConsoleHandler?.Log(LogLevel.Warning, fileException.DetailedMessage());
+                }
+                catch (LoggingException) { }
             }
             if (consoleException != null) {
-                FileHandler?.Log(LogLevel.Warning, "Failed to log to console: I/O error.");
+                try {
+                    FileHandler?.Log(LogLevel.Warning, consoleException.DetailedMessage());
+                }
+                catch (LoggingException) { }
             }
         }
 
         protected override void DisposeManaged() {
             FileHandler?.Dispose();
             base.DisposeManaged();
+        }
+    }
+
+    /// <summary>
+    /// Logs messages to <see cref="Console.Out"/> and <see cref="Console.Error"/>.
+    /// </summary>
+    class ConsoleLogHandler
+    {
+        /// <summary>
+        /// Logs a message to the console.
+        /// </summary>
+        /// <param name="level">The level of the message. If <see cref="LogLevel.Error"/>, the message is logged
+        /// to <see cref="Console.Error"/>. Otherwise, it is logged to <see cref="Console.Out"/>.</param>
+        /// <param name="message">The message to log.</param>
+        /// <exception cref="LoggingException">If the message could not be written to the console due to I/O errors.
+        /// </exception>
+        public void Log(LogLevel level, string message) {
+            var consoleStream = level == LogLevel.Error ? Console.Error : Console.Out;
+            try {
+                consoleStream.Write(LogFormatter.FormatMessage(level, message));
+                consoleStream.Flush();
+            }
+            catch (IOException e) {
+                throw new LoggingException("Failed to log to console", e);
+            }
         }
     }
 
@@ -89,14 +122,19 @@ namespace IncrementalBackup
         /// The file is created new or overwritten if it exists.
         /// </summary>
         /// <param name="path">The file to log messages to.</param>
-        /// <exception cref="LogIOException">If the file could not be opened.</exception>
+        /// <exception cref="LoggingException">If the file could not be opened.</exception>
         public FileLogHandler(string path) {
             try {
                 Stream = File.CreateText(path);
             }
-            catch (Exception e) when (e is ArgumentException or DirectoryNotFoundException or NotSupportedException
-                or PathTooLongException or UnauthorizedAccessException) {
-                throw new LogIOException(innerException: e);
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
+                throw new LoggingException("Failed to open log file", new InvalidPathException(path));
+            }
+            catch (DirectoryNotFoundException) {
+                throw new LoggingException("Failed to open log file", new PathNotFoundException(path));
+            }
+            catch (UnauthorizedAccessException) {
+                throw new LoggingException("Failed to open log file", new PathAccessDeniedException(path));
             }
         }
 
@@ -105,14 +143,14 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="level">The level of the message.</param>
         /// <param name="message">The message to log.</param>
-        /// <exception cref="LogIOException">If the message could not be written to the file due to I/O errors.</exception>
+        /// <exception cref="LoggingException">If the message could not be written to the file due to I/O errors.</exception>
         public void Log(LogLevel level, string message) {
             try {
                 Stream.Write(LogFormatter.FormatMessage(level, message));
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new LogIOException(innerException: e);
+                throw new LoggingException("Failed to log to file", e);
             }
         }
 
@@ -127,29 +165,6 @@ namespace IncrementalBackup
         private readonly StreamWriter Stream;
     }
 
-    /// <summary>
-    /// Logs messages to <see cref="Console.Out"/> and <see cref="Console.Error"/>.
-    /// </summary>
-    class ConsoleLogHandler
-    {
-        /// <summary>
-        /// Logs a message to the console.
-        /// </summary>
-        /// <param name="level">The level of the message. If <see cref="LogLevel.Error"/>, the message is logged
-        /// to <see cref="Console.Error"/>. Otherwise, it is logged to <see cref="Console.Out"/>.</param>
-        /// <param name="message">The message to log.</param>
-        /// <exception cref="LogIOException">If the message could not be written to the console due to I/O errors.</exception>
-        public void Log(LogLevel level, string message) {
-            var consoleStream = level == LogLevel.Error ? Console.Error : Console.Out;
-            try {
-                consoleStream.Write(LogFormatter.FormatMessage(level, message));
-            }
-            catch (IOException e) {
-                throw new LogIOException(innerException: e);
-            }
-        }
-    }
-
     static class LogFormatter
     {
         /// <summary>
@@ -161,7 +176,7 @@ namespace IncrementalBackup
         /// <returns>The formatted log message. Includes a trailing newline.</returns>
         public static string FormatMessage(LogLevel level, string message) =>
             string.Concat(
-                message.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None)
+                message.Split(NEWLINES, StringSplitOptions.None)
                 .Select(line => FormatLine(level, line) + Environment.NewLine));
 
         /// <summary>
@@ -171,7 +186,13 @@ namespace IncrementalBackup
         /// <param name="line">A line of the log message. Shouldn't contain newlines.</param>
         /// <returns>The formatted log line.</returns>
         private static string FormatLine(LogLevel level, string line) =>
-            $"{level}: {line}";
+            $"{level} | {line}";
+
+        /// <summary>
+        /// Array of newline character sequences used for splitting messages in
+        /// <see cref="FormatMessage(LogLevel, string)"/>, cached for performance reasons.
+        /// </summary>
+        private static readonly string[] NEWLINES = new[] { "\r\n", "\r", "\n" };
     }
 
     /// <summary>
@@ -196,8 +217,9 @@ namespace IncrementalBackup
     /// <summary>
     /// Thrown from log handlers to indicate an I/O error on the underlying medium.
     /// </summary>
-    class LogIOException : ApplicationException
+    class LoggingException : Exception
     {
-        public LogIOException(string? message = null, Exception? innerException = null) : base(message, innerException) { }
+        public LoggingException(string message, Exception? innerException) :
+            base(message, innerException) { }
     }
 }

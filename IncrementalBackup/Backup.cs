@@ -26,16 +26,11 @@ namespace IncrementalBackup
     class BackupResults
     {
         /// <summary>
-        /// The manifest for the backup.
-        /// </summary>
-        public BackupManifest Manifest;
-        /// <summary>
         /// Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
         /// (NOT inclusive of paths that were specifically requested to be exluded).
         /// </summary>
         public bool PathsSkipped;
     }
-
 
     class Backup
     {
@@ -139,7 +134,7 @@ namespace IncrementalBackup
             try {
                 path = BackupMeta.CreateBackupDirectory(Config.TargetDirectory);
             }
-            catch (CreateBackupDirectoryException e) {
+            catch (BackupDirectoryCreateException e) {
                 throw new BackupException("Failed to create new backup directory.", e);
             }
             Logger.Info($"Created backup directory \"{path}\"");
@@ -157,7 +152,7 @@ namespace IncrementalBackup
             try {
                 logger.FileHandler = new(path);
             }
-            catch (LogIOException e) {
+            catch (LoggingException e) {
                 logger.Warning(e.Message);
                 return;
             }
@@ -227,7 +222,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Thrown when a backup operation cannot be completed.
     /// </summary>
-    class BackupException : ApplicationException
+    class BackupException : Exception
     {
         public BackupException(string? message, Exception? innerException) : base(message, innerException) { }
     }
