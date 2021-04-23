@@ -43,6 +43,8 @@ namespace IncrementalBackup
                 if (string.Compare(sourceDirectory, backupSourceDirectory, true) == 0) {
                     var backupDirectory = Path.Join(targetDirectory, backupName);
 
+                    // TODO: don't fail if can't read backups, just log warning
+                    
                     BackupStartInfo startInfo;
                     try {
                         startInfo = BackupStartInfoReader.Read(BackupMeta.StartInfoFilePath(backupDirectory));

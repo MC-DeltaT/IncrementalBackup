@@ -11,7 +11,8 @@ namespace IncrementalBackup
     static class BackupMeta
     {
         /// <summary>
-        /// Creates a new randomly-named backup directory in the given directory.
+        /// Creates a new randomly-named backup directory in the given directory. Creates the given directory too, if
+        /// required.
         /// </summary>
         /// <param name="targetDirectory">The directory in which to create the backup directory.</param>
         /// <returns>The path to the new backup directory.</returns>

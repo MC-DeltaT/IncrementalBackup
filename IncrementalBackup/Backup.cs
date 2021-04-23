@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 
 
 namespace IncrementalBackup
@@ -21,16 +20,13 @@ namespace IncrementalBackup
     );
 
     /// <summary>
-    /// Results of <see cref="Backup.Run(BackupConfig, IReadOnlyList{BackupManifest}, Logger)"/>.
+    /// Results of <see cref="Backup.Run(BackupConfig, IReadOnlyList{PreviousBackup}, Logger)"/>.
     /// </summary>
-    class BackupResults
-    {
-        /// <summary>
-        /// Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
-        /// (NOT inclusive of paths that were specifically requested to be exluded).
-        /// </summary>
-        public bool PathsSkipped;
-    }
+    /// <param name="PathsSkipped">Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
+    /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
+    record BackupResults(
+        bool PathsSkipped
+    );
 
     class Backup
     {
@@ -40,13 +36,13 @@ namespace IncrementalBackup
         /// Also creates a new log file in the backup directory and attaches it to <paramref name="logger"/>.
         /// </summary>
         /// <param name="config">The configuration of this backup run.</param>
-        /// <param name="previousManifests">The existing backup manifests for this source directory. Must be in order
+        /// <param name="previousBackups">The existing backups for this source directory. Must be in order
         /// of the backup time.</param>
         /// <param name="logger">For logging of info during the backup.</param>
         /// <returns></returns>
-        public static BackupResults Run(BackupConfig config, IReadOnlyList<BackupManifest> previousManifests,
+        public static BackupResults Run(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups,
                 Logger logger) =>
-            new Backup(config, previousManifests, logger).Run();
+            new Backup(config, previousBackups, logger).Run();
 
         /// <summary>
         /// The name of the log file created in backup directories.
@@ -54,89 +50,32 @@ namespace IncrementalBackup
         private const string LOG_FILENAME = "log.txt";
 
         private readonly BackupConfig Config;
-        private readonly IReadOnlyList<BackupManifest> PreviousManifests;
+        private readonly IReadOnlyList<PreviousBackup> PreviousBackups;
         private readonly string BackupDirectory;
+        private readonly string BackupDataDirectory;
+        private bool PathsSkipped;
+        private readonly BackupManifestWriter ManifestWriter;
         private readonly Logger Logger;
-        private BackupResults Results;
 
-        private Backup(BackupConfig config, IReadOnlyList<BackupManifest> previousManifests, Logger logger) {
+        private Backup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups, Logger logger) {
             Config = config;
-            PreviousManifests = previousManifests;
-            Results = new() { Manifest = new(), PathsSkipped = false };
+            PreviousBackups = previousBackups;
+            PathsSkipped = false;
             Logger = logger;
-
             BackupDirectory = CreateBackupDirectory();
+            BackupDataDirectory = BackupMeta.BackupDataPath(BackupDirectory);
             CreateLogFile(BackupDirectory, Logger);
-        }
-
-        private BackupResults Run() {
-            Results.Manifest.BeginTime = DateTime.UtcNow;
-
-            // Explore directories in a depth-first manner, on the basis that files/folders within the same
-            // branch of the filesystem are likely to be modified together, so we want to back them up as
-            // close together in time as possible.
-            // Using an iterative algorithm to avoid recursion errors. However nstead of the normal iterative
-            // depth-first search algorithm, we push iterators of the child nodes onto the stack, and the algorithm
-            // constantly enumerates the top iterator. This means that the order of directories in the stack actually
-            // gives us the path from the source directory to the current directory, which is handy.
-
-            // Tuple item 1 is the parent node in the new backup tree.
-            // Tuple item 2 is an iterator of the directory's subdirectories.
-            List<Tuple<DirectoryNode?, IEnumerator<DirectoryInfo>>> searchStack = new();
-
-            searchStack.Add(new(
-                null,
-                new List<DirectoryInfo>() { new(Config.SourceDirectory) }.GetEnumerator()));       // TODO: exception handling
-
-            while (searchStack.Count > 0) {
-                while (searchStack[^1].Item2.MoveNext()) {
-                    var parentNode = searchStack[^1].Item1;
-                    var currentDirectory = searchStack[^1].Item2.Current;
-                    var fullPath = currentDirectory.FullName;      // TODO: exception handling
-
-                    if (IsPathExcluded(fullPath)) {
-                        Logger.Info($"Skipped excluded directory \"{fullPath}\"");
-                    }
-                    else {
-                        var relativePathComponents = searchStack.Where(t => t.Item1 != null).Select(t => t.Item1!.Name);
-                        var relativePathString = string.Join(Path.DirectorySeparatorChar, relativePathComponents);
-
-                        DirectoryNode newNode;
-                        if (parentNode == null) {
-                            newNode = Results.Manifest.BackupTree;
-                        }
-                        else {
-                            //Directory.CreateDirectory(Path.Join(BackupDirectory, relativePathString));    // TODO: exception handling
-                            newNode = new() { Name = currentDirectory.Name };
-                            parentNode.Subdirectories.Add(newNode);
-                        }
-
-                        //BackUpDirectoryFiles(currentDirectory, relativePathString, relativePathComponents);
-
-                        var subdirectories = currentDirectory.GetDirectories();     // TODO: exception handling
-                        searchStack.Add(new(newNode, subdirectories.AsEnumerable().GetEnumerator()));
-                    }
-                }
-                searchStack.Last().Item2.Dispose();
-                searchStack.RemoveAt(searchStack.Count - 1);
-            }
-
-            return Results;
+            ManifestWriter = new(BackupMeta.ManifestFilePath(BackupDirectory));
         }
 
         /// <summary>
         /// Creates a new directory in the target directory for this backup.
         /// </summary>
         /// <returns>The path to the created directory.</returns>
-        /// <exception cref="BackupException">If a new backup directory could not be created.</exception>
+        /// <exception cref="BackupDirectoryCreateException">If a new backup directory could not be created.
+        /// </exception>
         private string CreateBackupDirectory() {
-            string path;
-            try {
-                path = BackupMeta.CreateBackupDirectory(Config.TargetDirectory);
-            }
-            catch (BackupDirectoryCreateException e) {
-                throw new BackupException("Failed to create new backup directory.", e);
-            }
+            var path = BackupMeta.CreateBackupDirectory(Config.TargetDirectory);
             Logger.Info($"Created backup directory \"{path}\"");
             return path;
         }
@@ -159,7 +98,56 @@ namespace IncrementalBackup
             logger.Info($"Created log file \"{path}\"");
         }
 
-        private void BackUpDirectoryFiles(DirectoryInfo directory, string relativePath, IEnumerable<string> relativePathComponents) {
+        private BackupResults Run() {
+            // Explore directories in a depth-first manner, on the basis that files/folders within the same
+            // branch of the filesystem are likely to be modified together, so we want to back them up as
+            // close together in time as possible.
+            // Using an iterative algorithm to avoid recursion errors. However instead of the normal iterative
+            // depth-first search algorithm, we push iterators of the child nodes onto the stack, and the algorithm
+            // constantly enumerates the top iterator. This means that the order of directories in the stack actually
+            // gives us the path from the source directory to the current directory, which is handy.
+
+            List<string> directoryStack = new();
+            List<IEnumerator<DirectoryInfo>> searchStack = new();
+
+            searchStack.Add(new List<DirectoryInfo>() { new(Config.SourceDirectory) }.GetEnumerator());       // TODO: exception handling
+
+            while (searchStack.Count > 0) {
+                while (searchStack[^1].MoveNext()) {
+                    var currentDirectory = searchStack[^1].Current;
+                    var fullPath = currentDirectory.FullName;      // TODO: exception handling
+
+                    if (IsPathExcluded(fullPath)) {
+                        Logger.Info($"Skipped excluded directory \"{fullPath}\"");
+                    }
+                    else {
+                        directoryStack.Add(currentDirectory.Name);
+                        BackUpDirectory(currentDirectory, directoryStack);
+
+                        var subdirectories = currentDirectory.GetDirectories();     // TODO: exception handling
+                        searchStack.Add(subdirectories.AsEnumerable().GetEnumerator());
+                    }
+                }
+                searchStack[^1].Dispose();
+                searchStack.RemoveAt(searchStack.Count - 1);
+            }
+
+            return new(PathsSkipped);
+        }
+
+        private void BackUpDirectory(DirectoryInfo directory, IReadOnlyList<string> relativePath) {
+            var relativePathString = string.Join(Path.DirectorySeparatorChar, relativePath);
+            var fullBackupPath = Path.Join(BackupDataDirectory, relativePathString);
+            Directory.CreateDirectory(fullBackupPath);      // TODO: error handling
+            if (relativePath.Count > 1) {
+                // Only push directories that aren't the backup source directory.
+                ManifestWriter.PushDirectory(relativePath[^1]);     // TODO: exception handling
+            }
+            BackUpDirectoryFiles(directory, relativePathString, relativePath);
+        }
+
+        private void BackUpDirectoryFiles(DirectoryInfo directory, string relativePath,
+                IEnumerable<string> relativePathComponents) {
             var files = directory.GetFiles();       // TODO: exception handling
             foreach (var file in files) {
                 var path = file.FullName;       // TODO: exception handling
@@ -174,19 +162,20 @@ namespace IncrementalBackup
         }
 
         private void BackUpFile(FileInfo file, string relativePath) {
-            var backupPath = Path.Join(BackupDirectory, relativePath);
+            var backupPath = Path.Join(BackupDataDirectory, relativePath);
             file.CopyTo(backupPath);        // TODO: exception handling
         }
 
-        private bool ShouldBackUpFile(IEnumerable<string> relativePathComponents, string filename, DateTime lastWriteTimeUtc) {
+        private bool ShouldBackUpFile(IEnumerable<string> relativePathDirectories, string filename,
+                DateTime lastWriteTimeUtc) {
             // Find the last backup that included the file. Then see if the file has been modified since then.
-            foreach (var manifest in PreviousManifests.Reverse()) {
+            foreach (var previousBackup in PreviousBackups.Reverse()) {
                 // Match the directory segment of the path by walking down the backup tree.
                 var directoryMatch = true;
-                var node = manifest.BackupTree;
-                foreach (var component in relativePathComponents) {
+                var node = previousBackup.Manifest.Root;
+                foreach (var directory in relativePathDirectories) {
                     try {
-                        node = node.Subdirectories.First(s => string.Compare(s.Name, component, true) == 0);
+                        node = node.Subdirectories.First(s => string.Compare(s.Name, directory, true) == 0);
                     }
                     catch (InvalidOperationException) {
                         directoryMatch = false;
@@ -195,7 +184,7 @@ namespace IncrementalBackup
                 }
                 if (directoryMatch) {
                     if (node.Files.Any(f => string.Compare(f, filename, true) == 0)) {
-                        return lastWriteTimeUtc >= manifest.BeginTime;
+                        return lastWriteTimeUtc >= previousBackup.StartTime;
                     }
                 }
             }
@@ -217,13 +206,5 @@ namespace IncrementalBackup
             return Config.ExcludePaths.Any(
                 p => string.Compare(path, Utility.RemoveTrailingDirSep(p), true) == 0);
         }
-    }
-
-    /// <summary>
-    /// Thrown when a backup operation cannot be completed.
-    /// </summary>
-    class BackupException : Exception
-    {
-        public BackupException(string? message, Exception? innerException) : base(message, innerException) { }
     }
 }

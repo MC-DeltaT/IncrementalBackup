@@ -167,7 +167,7 @@ namespace IncrementalBackup
         /// Changes the current directory to one of its subdirectories, and records it as backed up.
         /// </summary>
         /// <param name="name">The name of the subdirectory to enter. Must not be empty or contain newlines.</param>
-        /// <exception cref="ArgumentException">If <paramref name="name"/> is empty.</exception>
+        /// <exception cref="ArgumentException">If <paramref name="name"/> is empty or contains newlines.</exception>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PushDirectory(string name) {
             if (name.Length == 0) {
@@ -214,7 +214,8 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="filename">The name of the file to record as backed up. Must not be empty or
         /// contain newlines.</param>
-        /// <exception cref="ArgumentException">If <paramref name="filename"/> is empty.</exception>
+        /// <exception cref="ArgumentException">If <paramref name="filename"/> is empty or contains newlines.
+        /// </exception>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void WriteFile(string filename) {
             if (filename.Length == 0) {
