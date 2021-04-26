@@ -16,7 +16,7 @@ namespace IncrementalBackup
         /// Tree of files and directories that were successfully backed up. <br/>
         /// The tree root is the source directory. <br/>
         /// </summary>
-        public DirectoryNode Root = new() { Name = "root" };
+        public DirectoryNode Root = new("root");
     }
 
     static class BackupManifestReader
@@ -67,7 +67,7 @@ namespace IncrementalBackup
                             var existingNode = directoryStack[^1].Subdirectories.Find(
                                 d => string.Compare(d.Name, directoryName, true) == 0);
                             if (existingNode == null) {
-                                DirectoryNode newNode = new() { Name = directoryName };
+                                DirectoryNode newNode = new(directoryName);
                                 directoryStack[^1].Subdirectories.Add(newNode);
                                 directoryStack.Add(newNode);
                             }
@@ -160,8 +160,14 @@ namespace IncrementalBackup
                 throw new BackupManifestFileIOException(filePath, new InvalidPathException(filePath));
             }
             FilePath = filePath;
-            CurrentPath = new();
+            PathDepth = 0;
         }
+
+        /// <summary>
+        /// The number of directories deep the current path is, relative to the backup source directory. <br/>
+        /// 0 = backup source directory.
+        /// </summary>
+        public long PathDepth { get; private set; }
 
         /// <summary>
         /// Changes the current directory to one of its subdirectories, and records it as backed up.
@@ -185,7 +191,7 @@ namespace IncrementalBackup
             catch (IOException e) {
                 throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
             }
-            CurrentPath.Add(name);
+            PathDepth++;
         }
 
         /// <summary>
@@ -195,7 +201,7 @@ namespace IncrementalBackup
         /// directory.</exception>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PopDirectory() {
-            if (CurrentPath.Count == 0) {
+            if (PathDepth == 0) {
                 throw new InvalidOperationException("No directories to pop.");
             }
             try {
@@ -206,7 +212,7 @@ namespace IncrementalBackup
             catch (IOException e) {
                 throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
             }
-            CurrentPath.RemoveAt(CurrentPath.Count - 1);
+            PathDepth--;
         }
 
         /// <summary>
@@ -248,12 +254,6 @@ namespace IncrementalBackup
         /// Writes to the manifest file.
         /// </summary>
         private readonly StreamWriter Stream;
-        /// <summary>
-        /// The stack of directories representing the current path being explored in the backup source directory. <br/>
-        /// The stack is relative to the backup source directory, i.e. empty stack represents the source directory
-        /// itself.
-        /// </summary>
-        private readonly List<string> CurrentPath;
     }
 
     static class BackupManifestFileConstants
@@ -267,17 +267,10 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup manifest file operation failed.
     /// </summary>
-    abstract class BackupManifestFileException : Exception
+    abstract class BackupManifestFileException : BackupMetaFileException
     {
         public BackupManifestFileException(string filePath, string message, Exception? innerException) :
-            base(message, innerException) {
-            FilePath = filePath;
-        }
-
-        /// <summary>
-        /// Path of the backup manifest file that was being accessed.
-        /// </summary>
-        public readonly string FilePath;
+            base(filePath, message, innerException) {}
     }
 
     /// <summary>

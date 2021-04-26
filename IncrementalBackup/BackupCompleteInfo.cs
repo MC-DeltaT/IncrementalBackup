@@ -91,17 +91,10 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup completion info file operation failed.
     /// </summary>
-    abstract class BackupCompleteInfoFileException : Exception
+    abstract class BackupCompleteInfoFileException : BackupMetaFileException
     {
         public BackupCompleteInfoFileException(string filePath, string message, Exception? innerException) :
-            base(message, innerException) {
-            FilePath = filePath;
-        }
-
-        /// <summary>
-        /// Path of the backup completion info file that was being accessed.
-        /// </summary>
-        public readonly string FilePath;
+            base(filePath, message, innerException) {}
     }
 
     /// <summary>

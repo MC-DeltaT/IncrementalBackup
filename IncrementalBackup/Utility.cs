@@ -38,35 +38,6 @@ namespace IncrementalBackup
         /// <returns><paramref name="path"/> with trailing directory separators removed.</returns>
         public static string RemoveTrailingDirSep(string path) =>
             path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-        /// <summary>
-        /// Checks if a path contains another path.
-        /// </summary>
-        /// <remarks>
-        /// Does not interact with the filesystem, so doesn't handle weird stuff like symbolic links, etc.
-        /// </remarks>
-        /// <param name="path1">The first path. Should be normalised.</param>
-        /// <param name="path2">The second path. Should be normalised.</param>
-        /// <returns><c>true</c> if <paramref name="path2"/> is contained within <paramref name="path1"/>, or
-        /// <paramref name="path1"/> == <paramref name="path2"/>, otherwise <c>false</c>.</returns>
-        public static bool PathContainsPath(string path1, string path2) {
-            if (path1.StartsWith(path2, StringComparison.InvariantCultureIgnoreCase)) {
-                if (path1.Length == path2.Length) {
-                    return true;
-                }
-                else {
-                    // path1.Length > path2.Length
-
-                    // Take care of the cases like: path1="C:\foo" path2="C:\foobar"
-                    var nonMatchingChar = path1[path2.Length];
-                    return nonMatchingChar == Path.DirectorySeparatorChar
-                        || nonMatchingChar == Path.AltDirectorySeparatorChar;
-                }
-            }
-            else {
-                return false;
-            }
-        }
     }
 
     /// <summary>
@@ -145,7 +116,7 @@ namespace IncrementalBackup
         /// Creates a detailed message by combining the messages from an exception and its nested exceptions.
         /// </summary>
         /// <param name="exception">The exception to create the detailed message from.</param>
-        /// <returns>The detailed exception message.</returns>
+        /// <returns>The detailed exception message, or an empty string if all messages are empty.</returns>
         public static string DetailedMessage(this Exception exception) {
             static IEnumerable<string> WalkMessages(Exception? exception) {
                 while (exception != null) {

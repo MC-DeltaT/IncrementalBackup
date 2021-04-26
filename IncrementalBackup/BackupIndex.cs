@@ -156,17 +156,10 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup index file operation failed.
     /// </summary>
-    abstract class BackupIndexFileException : Exception
+    abstract class BackupIndexFileException : BackupMetaFileException
     {
         public BackupIndexFileException(string filePath, string message, Exception? innerException) :
-            base(message, innerException) {
-            FilePath = filePath;
-        }
-
-        /// <summary>
-        /// Path of the backup index file that was being accessed.
-        /// </summary>
-        public readonly string FilePath;
+            base(filePath, message, innerException) {}
     }
 
     /// <summary>

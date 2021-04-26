@@ -2,7 +2,7 @@
   "profiles": {
     "IncrementalBackup": {
       "commandName": "Project",
-      "commandLineArgs": "D:\\ ./test_backup"
+      "commandLineArgs": "./test_source ./test_backup $RECYCLE.BIN \"System Volume Information\""
     }
   }
 }

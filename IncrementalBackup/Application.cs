@@ -58,9 +58,9 @@ namespace IncrementalBackup
                         return ProcessExitCode.Success;
                     }
                 }
-                catch (CriticalError e) {
+                catch (Exception e) when (e is BackupMetaException) {
                     Logger.Error(e.DetailedMessage());
-                    return e.ExitCode;
+                    return ProcessExitCode.RuntimeError;
                 }
             }
             catch (Exception e) {
@@ -103,7 +103,6 @@ namespace IncrementalBackup
                 Logger.Error("Access denied while resolving source directory.");
                 validArgs = false;
             }
-            sourceDirectory = Utility.RemoveTrailingDirSep(sourceDirectory);
 
             try {
                 targetDirectory = Path.GetFullPath(targetDirectory);
@@ -116,26 +115,19 @@ namespace IncrementalBackup
                 Logger.Error("Access denied while resolving target directory.");
                 validArgs = false;
             }
-            targetDirectory = Utility.RemoveTrailingDirSep(targetDirectory);
 
+            List<string> parsedExcludePaths = new();
             for (int i = 0; i < excludePaths.Count; ++i) {
                 try {
-                    excludePaths[i] = Path.GetFullPath(excludePaths[i], sourceDirectory);
+                    parsedExcludePaths.Add(Path.GetFullPath(excludePaths[i], sourceDirectory));
                 }
                 catch (ArgumentException) {
-                    Logger.Error($"Invalid exclude path \"{excludePaths[i]}\".");
-                    validArgs = false;
-                    continue;
-                }
-
-                if (!Utility.PathContainsPath(sourceDirectory, excludePaths[i])) {
-                    Logger.Error($"Exclude path \"{excludePaths[i]}\" is not within source directory.");
-                    validArgs = false;
+                    Logger.Warning($"Discarding invalid exclude path \"{excludePaths[i]}\".");
                 }
             }
 
             if (validArgs) {
-                return new(sourceDirectory, targetDirectory, excludePaths);
+                return new(sourceDirectory, targetDirectory, parsedExcludePaths);
             }
             else {
                 throw new InvalidCmdArgsException();
@@ -185,9 +177,9 @@ namespace IncrementalBackup
         /// <param name="targetDirectory">The target directory which is being examined.</param>
         /// <param name="index">The backup index detailing all the existing backups in
         /// <paramref name="targetDirectory"/>. If <c>null</c>, no manifests are matched.</param>
-        /// <returns>A list of the matched backup manifests, in ascending order of their backup time.</returns>
+        /// <returns>A list of the matched backup manifests, in unspecified order.</returns>
         /// <exception cref="BackupHistoryReadException">If a manifest file could not be read.</exception>
-        /// <exception cref="InconsistentBackupMetadataException">If previous backups' metadata is inconsistent.
+        /// <exception cref="BackupMetadataInconsistentException">If previous backups' metadata is inconsistent.
         /// </exception>
         private List<PreviousBackup> ReadPreviousBackups(string sourceDirectory, string targetDirectory,
                 BackupIndex? index) {
@@ -195,7 +187,8 @@ namespace IncrementalBackup
                 return new();
             }
             else {
-                var previousBackups = BackupHistory.ReadPreviousBackups(sourceDirectory, targetDirectory, index);
+                var previousBackups = BackupHistory.ReadPreviousBackups(sourceDirectory, targetDirectory, index,
+                    e => Logger.Warning(e.DetailedMessage()));
                 Logger.Info($"{previousBackups.Count} previous backups found for this source directory.");
                 return previousBackups;
             }
@@ -205,18 +198,11 @@ namespace IncrementalBackup
         /// Runs the backup. Creates the new backup directory and copies files over.
         /// </summary>
         /// <param name="config">The configuration of this backup.</param>
-        /// <param name="previousBackups">The existing backup data for this source directory. Must be in order of the
-        /// backup time.</param>
+        /// <param name="previousBackups">The existing backup data for this source directory.</param>
         /// <returns>Results of the backup.</returns>
-        /// <exception cref="CriticalError">If an error occurred during the backup such that it could not continue.</exception>
         /// <seealso cref="Backup.Run(BackupConfig, IReadOnlyList{BackupManifest}, Logger)"/>
         private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups) {
-            try {
-                return Backup.Run(config, previousBackups, Logger);
-            }
-            catch (BackupException e) {
-                throw new CriticalError(e.Message, e);
-            }
+            return Backup.Run(config, previousBackups, Logger);
         }
     }
 
@@ -237,7 +223,7 @@ namespace IncrementalBackup
         /// <summary>
         /// Indicates the backup was aborted due to some runtime error.
         /// </summary>
-        Error = 3,
+        RuntimeError = 3,
         /// <summary>
         /// Indicates the backup was aborted due to an unhandled exception (bad programmer!).
         /// </summary>

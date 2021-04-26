@@ -8,6 +8,10 @@ namespace IncrementalBackup
     /// </summary>
     class DirectoryNode
     {
+        public DirectoryNode(string name) {
+            Name = name;
+        }
+
         /// <summary>
         /// The name of the directory (not path).
         /// </summary>

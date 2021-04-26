@@ -127,9 +127,34 @@ namespace IncrementalBackup
     }
 
     /// <summary>
+    /// Indicates a backup metadata or metastructure operation failed.
+    /// </summary>
+    abstract class BackupMetaException : Exception
+    {
+        public BackupMetaException(string message, Exception? innerException) :
+            base(message, innerException) { }
+    }
+
+    /// <summary>
+    /// Indicates a backup metadata file operation failed.
+    /// </summary>
+    abstract class BackupMetaFileException : BackupMetaException
+    {
+        public BackupMetaFileException(string filePath, string message, Exception? innerException) :
+            base(message, innerException) {
+            FilePath = filePath;
+        }
+
+        /// <summary>
+        /// Path of the backup metadata file that was being accessed.
+        /// </summary>
+        public readonly string FilePath;
+    }
+
+    /// <summary>
     /// Thrown from <see cref="BackupMeta.CreateBackupDirectory(string)"/> on failure.
     /// </summary>
-    class BackupDirectoryCreateException : Exception
+    class BackupDirectoryCreateException : BackupMetaException
     {
         public BackupDirectoryCreateException(string targetDirectory, IReadOnlyList<string> attemptedDirectoryNames,
                 FilesystemException? innerException) :
@@ -164,10 +189,10 @@ namespace IncrementalBackup
     /// Such inconsistency should never occur in practice, if the application works correctly. <br/>
     /// However, it is possible and probably shouldn't be ignored if it is detected.
     /// </remarks>
-    class InconsistentBackupMetadataException : Exception
+    class BackupMetadataInconsistentException : BackupMetaException
     {
-        public InconsistentBackupMetadataException(string backupDirectory, string message) :
-            base(message) {
+        public BackupMetadataInconsistentException(string backupDirectory, string message) :
+            base(message, null) {
             BackupDirectory = backupDirectory;
         }
 
