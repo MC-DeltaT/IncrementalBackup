@@ -43,30 +43,27 @@ namespace IncrementalBackup
                     throw new BackupIndexFileIOException(filePath, new FilesystemException(filePath, e.Message));
                 }
 
-                if (line == null) {
+                if (line is null) {
                     break;
                 }
                 lineNum++;
 
+                // Empty line ok, just skip it.
                 if (line.Length == 0) {
                     continue;
                 }
-
+                
+                // Split on first separator (should be exactly 1).
                 var parts = line.Split(BackupIndexFileConstants.SEPARATOR, 2);
                 if (parts.Length != 2) {
                     throw new BackupIndexFileParseException(filePath, lineNum);
                 }
 
+                // Note that empty values are valid, even though that shouldn't happen in practice.
                 var backupDirectory = parts[0];
-                if (backupDirectory.Length == 0) {
-                    throw new BackupIndexFileParseException(filePath, lineNum);
-                }
-                var backupSource = parts[1];
-                if (backupDirectory.Length == 0) {
-                    throw new BackupIndexFileParseException(filePath, lineNum);
-                }
+                var backupSourcePath = DecodePath(parts[1]);
 
-                index.Backups[backupDirectory] = backupSource;
+                index.Backups[backupDirectory] = backupSourcePath;
             }
 
             return index;
@@ -89,6 +86,14 @@ namespace IncrementalBackup
                 throw new BackupIndexFileIOException(filePath, new PathNotFoundException(filePath));
             }
         }
+
+        /// <summary>
+        /// Inverts <see cref="BackupIndexWriter.EncodePath(string)"/>.
+        /// </summary>
+        /// <param name="encodedPath">The encoded path.</param>
+        /// <returns>The decoded path.</returns>
+        private static string DecodePath(string encodedPath) =>
+            encodedPath.Replace(@"\r", "\r").Replace(@"\n", "\n").Replace(@"\\", @"\");
     }
 
     class BackupIndexWriter
@@ -98,18 +103,14 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="indexFilePath">The path of the index file to write to. May be a nonexistent file, in which
         /// case it will be created.</param>
-        /// <param name="backupDirectory">The name of the backup directory. Must not be empty or contain
+        /// <param name="backupDirectory">The name of the backup directory. Must not contain
         /// <see cref="BackupIndexFileConstants.SEPARATOR"/> or newline characters.</param>
-        /// <param name="backupSourceDirectory">The source directory path for the backup. Must not be empty or contain
-        /// newline characters.</param>
-        /// <exception cref="ArgumentException">If <paramref name="backupDirectory"/> or
-        /// <paramref name="backupSourceDirectory"/> are empty or contain invalid characters.</exception>
+        /// <param name="backupSourcePath">The source directory path for the backup.</param>
+        /// <exception cref="ArgumentException">If <paramref name="backupDirectory"/> contains invalid characters.
+        /// </exception>
         /// <exception cref="BackupIndexFileIOException">Failed to write to the index file due to filesystem-related
         /// errors.</exception>
-        public static void AddEntry(string indexFilePath, string backupDirectory, string backupSourceDirectory) {
-            if (backupDirectory.Length == 0) {
-                throw new ArgumentException($"{nameof(backupDirectory)} must not be empty.", nameof(backupDirectory));
-            }
+        public static void AddEntry(string indexFilePath, string backupDirectory, string backupSourcePath) {
             if (backupDirectory.Contains(BackupIndexFileConstants.SEPARATOR)) {
                 throw new ArgumentException(
                     $"{nameof(backupDirectory)} must not contain {BackupIndexFileConstants.SEPARATOR}",
@@ -120,16 +121,7 @@ namespace IncrementalBackup
                     nameof(backupDirectory));
             }
 
-            if (backupSourceDirectory.Length == 0) {
-                throw new ArgumentException($"{nameof(backupSourceDirectory)} must not be empty.",
-                    nameof(backupSourceDirectory));
-            }
-            if (backupSourceDirectory.ContainsNewlines()) {
-                throw new ArgumentException($"{nameof(backupSourceDirectory)} must not contain newlines.",
-                    nameof(backupSourceDirectory));
-            }
-
-            var entry = $"{backupDirectory}{BackupIndexFileConstants.SEPARATOR}{backupSourceDirectory}";
+            var entry = $"{backupDirectory}{BackupIndexFileConstants.SEPARATOR}{EncodePath(backupSourcePath)}";
             try {
                 File.AppendAllText(indexFilePath, entry, new UTF8Encoding(false, true));
             }
@@ -146,6 +138,15 @@ namespace IncrementalBackup
                 throw new BackupIndexFileIOException(indexFilePath, new FilesystemException(indexFilePath, e.Message));
             }
         }
+
+        /// <summary>
+        /// Encodes a path for use in a backup index. <br/>
+        /// Specifically, escapes newline characters so each entry in the index can always be 1 line.
+        /// </summary>
+        /// <param name="path">The path to encode.</param>
+        /// <returns>The encoded path.</returns>
+        private static string EncodePath(string path) =>
+            path.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\r", @"\r");
     }
 
     static class BackupIndexFileConstants
@@ -168,11 +169,11 @@ namespace IncrementalBackup
     class BackupIndexFileIOException : BackupIndexFileException
     {
         public BackupIndexFileIOException(string filePath, FilesystemException innerException) :
-            base(filePath, $"Failed to access backup index file \"{filePath}\"", innerException) { }
+            base(filePath, $"Failed to access backup index file \"{filePath}\": {innerException.Reason}",
+                innerException) { }
 
-        public new FilesystemException InnerException {
-            get => (FilesystemException)base.InnerException;
-        }
+        public new FilesystemException InnerException =>
+            (FilesystemException)base.InnerException!;
     }
 
     /// <summary>
@@ -181,7 +182,8 @@ namespace IncrementalBackup
     class BackupIndexFileParseException : BackupIndexFileException
     {
         public BackupIndexFileParseException(string filePath, long line) :
-            base(filePath, $"Failed to parse backup index file \"{filePath}\"", null) {
+            base(filePath, $"Failed to parse backup index file \"{filePath}\", line {line}",
+                null) {
             Line = line;
         }
 

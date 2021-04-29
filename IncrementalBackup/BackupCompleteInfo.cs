@@ -50,8 +50,8 @@ namespace IncrementalBackup
             catch (JsonException e) {
                 throw new BackupCompleteInfoFileParseException(filePath, e);
             }
-            if (value == null) {
-                throw new BackupCompleteInfoFileParseException(filePath, null);
+            if (value is null) {
+                throw new BackupCompleteInfoFileParseException(filePath, "null not allowed");
             }
             else {
                 return value;
@@ -103,11 +103,11 @@ namespace IncrementalBackup
     class BackupCompleteInfoFileIOException : BackupCompleteInfoFileException
     {
         public BackupCompleteInfoFileIOException(string filePath, FilesystemException innerException) :
-            base(filePath, $"Failed to access backup completion info file \"{filePath}\"", innerException) { }
+            base(filePath, $"Failed to access backup completion info file \"{filePath}\": {innerException.Reason}",
+                innerException) { }
 
-        public new FilesystemException InnerException {
-            get => (FilesystemException)base.InnerException;
-        }
+        public new FilesystemException InnerException =>
+            (FilesystemException)base.InnerException!;
     }
 
     /// <summary>
@@ -115,11 +115,14 @@ namespace IncrementalBackup
     /// </summary>
     class BackupCompleteInfoFileParseException : BackupCompleteInfoFileException
     {
-        public BackupCompleteInfoFileParseException(string filePath, JsonException? innerException) :
-            base(filePath, $"Failed to parse backup completion info file \"{filePath}\"", innerException) { }
+        public BackupCompleteInfoFileParseException(string filePath, JsonException innerException) :
+            base(filePath, $"Failed to parse backup completion info file \"{filePath}\": {innerException.Message}",
+                innerException) { }
 
-        public new JsonException? InnerException {
-            get => base.InnerException as JsonException;
-        }
+        public BackupCompleteInfoFileParseException(string filePath, string reason) :
+            base(filePath, $"Failed to parse backup completion info file \"{filePath}\": {reason}", null) { }
+
+        public new JsonException? InnerException =>
+            base.InnerException as JsonException;
     }
 }

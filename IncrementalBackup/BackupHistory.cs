@@ -40,14 +40,14 @@ namespace IncrementalBackup
 
                 // Paths are assumed to be already normalised.
                 if (string.Compare(sourceDirectory, backupSourceDirectory, true) == 0) {
-                    var backupDirectory = Path.Join(targetDirectory, backupName);
+                    var backupPath = Path.Join(targetDirectory, backupName);
 
                     BackupStartInfo startInfo;
                     try {
-                        startInfo = BackupStartInfoReader.Read(BackupMeta.StartInfoFilePath(backupDirectory));
+                        startInfo = BackupStartInfoReader.Read(BackupMeta.StartInfoFilePath(backupPath));
                     }
                     catch (BackupStartInfoFileException e) {
-                        errorHandler(new BackupHistoryReadException(targetDirectory, backupName, e));
+                        errorHandler(new BackupHistoryReadException(backupPath, e));
                         continue;
                     }
 
@@ -55,17 +55,17 @@ namespace IncrementalBackup
                     // idea to check just in case something goes particularly wrong.
                     if (string.Compare(sourceDirectory, startInfo.SourceDirectory, true) == 0) {
                         errorHandler(
-                            new BackupMetadataInconsistentException(backupDirectory,
-                            $"Source directory of backup start info in \"{backupDirectory}\" doesn't match backup index."));
+                            new BackupMetadataInconsistentException(backupPath,
+                            $"Source directory of backup start info in \"{backupPath}\" doesn't match backup index."));
                         continue;
                     }
 
                     BackupManifest manifest;
                     try {
-                        manifest = BackupManifestReader.Read(BackupMeta.ManifestFilePath(backupDirectory));
+                        manifest = BackupManifestReader.Read(BackupMeta.ManifestFilePath(backupPath));
                     }
                     catch (BackupManifestFileException e) {
-                        errorHandler(new BackupHistoryReadException(targetDirectory, backupName, e));
+                        errorHandler(new BackupHistoryReadException(backupPath, e));
                         continue;
                     }
                     history.Add(new(startInfo.StartTime, manifest));
@@ -81,27 +81,18 @@ namespace IncrementalBackup
     /// </summary>
     class BackupHistoryReadException : BackupMetaException
     {
-        public BackupHistoryReadException(string targetDirectory, string backupName, Exception innerException) :
-            base($"Failed to read previous backup \"{Path.Join(targetDirectory, backupName)}\"", innerException) {
-            TargetDirectory = targetDirectory;
-            BackupName = backupName;
+        public BackupHistoryReadException(string backupPath, BackupMetaFileException innerException) :
+            base($"Failed to read metadata in previous backup \"{backupPath}\": {innerException.Message}",
+                innerException) {
+            BackupPath = backupPath;
         }
-
-        /// <summary>
-        /// The path of the target directory that was being checked.
-        /// </summary>
-        public readonly string TargetDirectory;
-
-        /// <summary>
-        /// The name of the backup directory that could not be read.
-        /// </summary>
-        public readonly string BackupName;
 
         /// <summary>
         /// The path of the backup directory that could not be read.
         /// </summary>
-        public string BackupDirectory {
-            get => Path.Join(TargetDirectory, BackupName);
-        }
+        public readonly string BackupPath;
+
+        public new BackupMetaFileException InnerException =>
+            (BackupMetaFileException)base.InnerException!;
     }
 }

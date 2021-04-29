@@ -42,7 +42,8 @@ namespace IncrementalBackup
                 throw new BackupStartInfoFileIOException(filePath, new PathAccessDeniedException(filePath));
             }
             catch (IOException e) {
-                throw new BackupStartInfoFileIOException(filePath, new FilesystemException(filePath, e.Message));
+                throw new BackupStartInfoFileIOException(filePath,
+                    new FilesystemException(filePath, e.Message));
             }
 
             BackupStartInfo? value;
@@ -52,8 +53,8 @@ namespace IncrementalBackup
             catch (JsonException e) {
                 throw new BackupStartInfoFileParseException(filePath, e);
             }
-            if (value == null) {
-                throw new BackupStartInfoFileParseException(filePath, null);
+            if (value is null) {
+                throw new BackupStartInfoFileParseException(filePath, "null not allowed");
             }
             else {
                 return value;
@@ -85,7 +86,8 @@ namespace IncrementalBackup
                 throw new BackupStartInfoFileIOException(filePath, new PathAccessDeniedException(filePath));
             }
             catch (IOException e) {
-                throw new BackupStartInfoFileIOException(filePath, new FilesystemException(filePath, e.Message));
+                throw new BackupStartInfoFileIOException(filePath,
+                    new FilesystemException(filePath, e.Message));
             }
         }
     }
@@ -95,7 +97,7 @@ namespace IncrementalBackup
     /// </summary>
     abstract class BackupStartInfoFileException : BackupMetaFileException
     {
-        public BackupStartInfoFileException(string filePath, string message, Exception? innerException = null) :
+        public BackupStartInfoFileException(string filePath, string message, Exception? innerException) :
             base(filePath, message, innerException) {}
     }
 
@@ -105,11 +107,11 @@ namespace IncrementalBackup
     class BackupStartInfoFileIOException : BackupStartInfoFileException
     {
         public BackupStartInfoFileIOException(string filePath, FilesystemException innerException) :
-            base(filePath, $"Failed to access backup start info file \"{filePath}\"", innerException) { }
+            base(filePath,
+                $"Failed to access backup start info file \"{filePath}\": {innerException.Reason}", innerException) { }
 
-        public new FilesystemException InnerException {
-            get => (FilesystemException)base.InnerException;
-        }
+        public new FilesystemException InnerException =>
+            (FilesystemException)base.InnerException!;
     }
 
     /// <summary>
@@ -117,11 +119,14 @@ namespace IncrementalBackup
     /// </summary>
     class BackupStartInfoFileParseException : BackupStartInfoFileException
     {
-        public BackupStartInfoFileParseException(string filePath, JsonException? innerException) :
-            base(filePath, $"Failed to parse backup start info file \"{filePath}\"", innerException) { }
+        public BackupStartInfoFileParseException(string filePath, JsonException innerException) :
+            base(filePath, $"Failed to parse backup start info file \"{filePath}\": {innerException.Message}",
+                innerException) { }
 
-        public new JsonException? InnerException {
-            get => base.InnerException as JsonException;
-        }
+        public BackupStartInfoFileParseException(string filePath, string reason) :
+            base(filePath, $"Failed to parse backup start info file \"{filePath}\": {reason}", null) { }
+
+        public new JsonException? InnerException =>
+            base.InnerException as JsonException;
     }
 }

@@ -59,7 +59,7 @@ namespace IncrementalBackup
                     }
                 }
                 catch (Exception e) when (e is BackupMetaException) {
-                    Logger.Error(e.DetailedMessage());
+                    Logger.Error(e.Message);
                     return ProcessExitCode.RuntimeError;
                 }
             }
@@ -71,7 +71,7 @@ namespace IncrementalBackup
 
         /// <summary>
         /// Parses and validates the application's command line arguments. <br/>
-        /// If any of the arguments are invalid, writes error info to the logs.
+        /// If any of the arguments are invalid, writes error info to <see cref="Logger"/>.
         /// </summary>
         /// <remarks>
         /// Note that the filesystem paths in the returned <see cref="BackupConfig"/> are not guaranteed to be valid,
@@ -135,7 +135,7 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Outputs a <see cref="BackupConfig"/> to the logs.
+        /// Outputs a <see cref="BackupConfig"/> to <see cref="Logger"/>.
         /// </summary>
         /// <param name="config">The backup config to output.</param>
         private void LogConfig(BackupConfig config) {
@@ -147,7 +147,7 @@ namespace IncrementalBackup
 
         /// <summary>
         /// Reads the backup index from a target directory. <br/>
-        /// If no backup index exists, writes a message to the logs.
+        /// If no backup index exists, writes a message to <see cref="Logger"/>.
         /// </summary>
         /// <param name="targetDirectory">The target directory to read from.</param>
         /// <returns>The read backup index, or <c>null</c> if the index file does not exist.</returns>
@@ -166,7 +166,7 @@ namespace IncrementalBackup
 
         /// <summary>
         /// Reads the existing backup manifests matching the given source directory. <br/>
-        /// Outputs the number of manifests matched to the logs.
+        /// Outputs the number of manifests matched to <see cref="Logger"/>.
         /// </summary>
         /// <remarks>
         /// Manifests are matched by comparing their source directories to <paramref name="sourceDirectory"/>. <br/>
@@ -183,12 +183,12 @@ namespace IncrementalBackup
         /// </exception>
         private List<PreviousBackup> ReadPreviousBackups(string sourceDirectory, string targetDirectory,
                 BackupIndex? index) {
-            if (index == null) {
+            if (index is null) {
                 return new();
             }
             else {
                 var previousBackups = BackupHistory.ReadPreviousBackups(sourceDirectory, targetDirectory, index,
-                    e => Logger.Warning(e.DetailedMessage()));
+                    e => Logger.Warning(e.Message));
                 Logger.Info($"{previousBackups.Count} previous backups found for this source directory.");
                 return previousBackups;
             }
@@ -201,9 +201,8 @@ namespace IncrementalBackup
         /// <param name="previousBackups">The existing backup data for this source directory.</param>
         /// <returns>Results of the backup.</returns>
         /// <seealso cref="Backup.Run(BackupConfig, IReadOnlyList{BackupManifest}, Logger)"/>
-        private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups) {
-            return Backup.Run(config, previousBackups, Logger);
-        }
+        private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups) =>
+            Backup.Run(config, previousBackups, Logger);
     }
 
     enum ProcessExitCode
@@ -236,6 +235,6 @@ namespace IncrementalBackup
     class InvalidCmdArgsException : Exception
     {
         public InvalidCmdArgsException() :
-            base(null, null) { }
+            base("Invalid command line arguments", null) { }
     }
 }

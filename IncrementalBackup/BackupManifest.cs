@@ -16,7 +16,7 @@ namespace IncrementalBackup
         /// Tree of files and directories that were successfully backed up. <br/>
         /// The tree root is the source directory. <br/>
         /// </summary>
-        public DirectoryNode Root = new("root");
+        public DirectoryNode Root = new("source");
     }
 
     static class BackupManifestReader
@@ -44,11 +44,12 @@ namespace IncrementalBackup
                     throw new BackupManifestFileIOException(filePath, new FilesystemException(filePath, e.Message));
                 }
 
-                if (line == null) {
+                if (line is null) {
                     break;
                 }
                 lineNum++;
 
+                // Empty lines ok, just skip them.
                 if (line.Length == 0) {
                     continue;
                 }
@@ -58,15 +59,14 @@ namespace IncrementalBackup
                 }
                 switch (line[0]) {
                     case BackupManifestFileConstants.PUSH_DIRECTORY: {
-                            if (line.Length <= 2) {
-                                throw new BackupManifestFileParseException(filePath, lineNum);
-                            }
-                            var directoryName = line[2..];
+                            // Note that empty directory names are allowed, even though it should never occur in
+                            // practice.
+                            var directoryName = DecodeName(line[2..]);
                             // Shouldn't occur in practice, but we will allow entering a subdirectory more than once,
                             // there shouldn't be any issues with it.
                             var existingNode = directoryStack[^1].Subdirectories.Find(
                                 d => string.Compare(d.Name, directoryName, true) == 0);
-                            if (existingNode == null) {
+                            if (existingNode is null) {
                                 DirectoryNode newNode = new(directoryName);
                                 directoryStack[^1].Subdirectories.Add(newNode);
                                 directoryStack.Add(newNode);
@@ -87,10 +87,8 @@ namespace IncrementalBackup
                             break;
                         }
                     case BackupManifestFileConstants.RECORD_FILE: {
-                            if (line.Length <= 2) {
-                                throw new BackupManifestFileParseException(filePath, lineNum);
-                            }
-                            var filename = line[2..];
+                            // Note that empty filenames are allowed, even though it should never occur in practice.
+                            var filename = DecodeName(line[2..]);
                             // Technically we should check if the file has already been read, but in practice there
                             // shouldn't be any duplicate files, and duplicates shouldn't cause any issues, so we
                             // won't do any checks for performance reasons.
@@ -122,6 +120,14 @@ namespace IncrementalBackup
                 throw new BackupManifestFileIOException(filePath, new PathNotFoundException(filePath));
             }
         }
+
+        /// <summary>
+        /// Inverts <see cref="BackupManifestWriter.EncodeName(string)"/>.
+        /// </summary>
+        /// <param name="encodedName">The encoded file/directory name.</param>
+        /// <returns>The decoded name.</returns>
+        private static string DecodeName(string encodedName) =>
+            encodedName.Replace(@"\r", "\r").Replace(@"\n", "\n").Replace(@"\\", @"\");
     }
 
     /// <summary>
@@ -164,6 +170,11 @@ namespace IncrementalBackup
         }
 
         /// <summary>
+        /// The path of the manifest file being written to.
+        /// </summary>
+        public readonly string FilePath;
+
+        /// <summary>
         /// The number of directories deep the current path is, relative to the backup source directory. <br/>
         /// 0 = backup source directory.
         /// </summary>
@@ -172,19 +183,12 @@ namespace IncrementalBackup
         /// <summary>
         /// Changes the current directory to one of its subdirectories, and records it as backed up.
         /// </summary>
-        /// <param name="name">The name of the subdirectory to enter. Must not be empty or contain newlines.</param>
-        /// <exception cref="ArgumentException">If <paramref name="name"/> is empty or contains newlines.</exception>
+        /// <param name="name">The name of the subdirectory to enter.</param>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PushDirectory(string name) {
-            if (name.Length == 0) {
-                throw new ArgumentException($"{nameof(name)} must not be empty.", nameof(name));
-            }
-            if (name.ContainsNewlines()) {
-                throw new ArgumentException($"{nameof(name)} must not contain newlines", nameof(name));
-            }
-
             try {
-                var line = $"{BackupManifestFileConstants.PUSH_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}{name}";
+                var encodedName = EncodeName(name);
+                var line = $"{BackupManifestFileConstants.PUSH_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
                 Stream.WriteLine(line);
                 Stream.Flush();
             }
@@ -202,7 +206,7 @@ namespace IncrementalBackup
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PopDirectory() {
             if (PathDepth == 0) {
-                throw new InvalidOperationException("No directories to pop.");
+                throw new InvalidOperationException("Current directory is already backup source directory.");
             }
             try {
                 var line = $"{BackupManifestFileConstants.POP_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}";
@@ -218,21 +222,12 @@ namespace IncrementalBackup
         /// <summary>
         /// Records a file in the current directory as backed up.
         /// </summary>
-        /// <param name="filename">The name of the file to record as backed up. Must not be empty or
-        /// contain newlines.</param>
-        /// <exception cref="ArgumentException">If <paramref name="filename"/> is empty or contains newlines.
-        /// </exception>
+        /// <param name="name">The name of the file to record as backed up..</param>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
-        public void WriteFile(string filename) {
-            if (filename.Length == 0) {
-                throw new ArgumentException($"{nameof(filename)} must not be empty.", nameof(filename));
-            }
-            if (filename.ContainsNewlines()) {
-                throw new ArgumentException($"{nameof(filename)} must not contain newlines", nameof(filename));
-            }
-
+        public void RecordFile(string name) {
             try {
-                var line = $"{BackupManifestFileConstants.RECORD_FILE}{BackupManifestFileConstants.SEPARATOR}{filename}";
+                var encodedName = EncodeName(name);
+                var line = $"{BackupManifestFileConstants.RECORD_FILE}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
                 Stream.WriteLine(line);
                 Stream.Flush();
             }
@@ -247,13 +242,18 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// The path of the manifest file being written to. Kept in case it's needed for error information.
-        /// </summary>
-        private readonly string FilePath;
-        /// <summary>
         /// Writes to the manifest file.
         /// </summary>
         private readonly StreamWriter Stream;
+
+        /// <summary>
+        /// Encodes a file or directory name for use in a backup manifest. <br/>
+        /// Specifically, escapes newline characters so each entry in the manifest is always 1 line.
+        /// </summary>
+        /// <param name="name">The file/directory name.</param>
+        /// <returns>The encoded name.</returns>
+        private static string EncodeName(string name) =>
+            name.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\r", @"\r");
     }
 
     static class BackupManifestFileConstants
@@ -279,11 +279,11 @@ namespace IncrementalBackup
     class BackupManifestFileIOException : BackupManifestFileException
     {
         public BackupManifestFileIOException(string filePath, FilesystemException innerException) :
-            base(filePath, $"Failed to access backup manifest file \"{filePath}\"", innerException) { }
+            base(filePath, $"Failed to access backup manifest file \"{filePath}\": {innerException.Reason}",
+                innerException) { }
 
-        public new FilesystemException InnerException {
-            get => (FilesystemException)base.InnerException;
-        }
+        public new FilesystemException InnerException =>
+            (FilesystemException)base.InnerException!;
     }
 
     /// <summary>
@@ -292,7 +292,7 @@ namespace IncrementalBackup
     class BackupManifestFileParseException : BackupManifestFileException
     {
         public BackupManifestFileParseException(string filePath, long line) :
-            base(filePath, $"Failed to parse backup manifest file \"{filePath}\"", null) {
+            base(filePath,  $"Failed to parse backup manifest file \"{filePath}\", line {line}", null) {
             Line = line;
         }
 

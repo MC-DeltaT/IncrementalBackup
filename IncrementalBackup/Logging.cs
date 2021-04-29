@@ -67,15 +67,15 @@ namespace IncrementalBackup
                 consoleException = e;
             }
 
-            if (fileException != null) {
+            if (fileException is not null) {
                 try {
-                    ConsoleHandler?.Log(LogLevel.Warning, fileException.DetailedMessage());
+                    ConsoleHandler?.Log(LogLevel.Warning, fileException.Message);
                 }
                 catch (LoggingException) { }
             }
-            if (consoleException != null) {
+            if (consoleException is not null) {
                 try {
-                    FileHandler?.Log(LogLevel.Warning, consoleException.DetailedMessage());
+                    FileHandler?.Log(LogLevel.Warning, consoleException.Message);
                 }
                 catch (LoggingException) { }
             }
@@ -107,7 +107,7 @@ namespace IncrementalBackup
                 consoleStream.Flush();
             }
             catch (IOException e) {
-                throw new LoggingException("Failed to log to console", e);
+                throw new LoggingException($"Failed to log to console: {e.Message}", e);
             }
         }
     }
@@ -125,32 +125,45 @@ namespace IncrementalBackup
         /// <exception cref="LoggingException">If the file could not be opened.</exception>
         public FileLogHandler(string path) {
             try {
-                Stream = File.CreateText(path);
+                try {
+                    Stream = File.CreateText(path);
+                }
+                catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
+                    throw new InvalidPathException(path);
+                }
+                catch (DirectoryNotFoundException) {
+                    throw new PathNotFoundException(path);
+                }
+                catch (UnauthorizedAccessException) {
+                    throw new PathAccessDeniedException(path);
+                }
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                throw new LoggingException("Failed to open log file", new InvalidPathException(path));
+            catch (FilesystemException e) {
+                throw new LoggingException($"Failed to create/open log file \"{path}\": {e.Reason}", e);
             }
-            catch (DirectoryNotFoundException) {
-                throw new LoggingException("Failed to open log file", new PathNotFoundException(path));
-            }
-            catch (UnauthorizedAccessException) {
-                throw new LoggingException("Failed to open log file", new PathAccessDeniedException(path));
-            }
+            FilePath = path;
         }
+
+        /// <summary>
+        /// The path of the file this handler writes to.
+        /// </summary>
+        public readonly string FilePath;
 
         /// <summary>
         /// Logs a message to the associated file.
         /// </summary>
         /// <param name="level">The level of the message.</param>
         /// <param name="message">The message to log.</param>
-        /// <exception cref="LoggingException">If the message could not be written to the file due to I/O errors.</exception>
+        /// <exception cref="LoggingException">If the message could not be written to the file due to I/O errors.
+        /// </exception>
         public void Log(LogLevel level, string message) {
             try {
                 Stream.Write(LogFormatter.FormatMessage(level, message));
                 Stream.Flush();
             }
             catch (IOException e) {
-                throw new LoggingException("Failed to log to file", e);
+                throw new LoggingException($"Failed to log to file \"{FilePath}\": {e.Message}",
+                    new FilesystemException(FilePath, e.Message));
             }
         }
 

@@ -154,11 +154,10 @@ namespace IncrementalBackup
     /// <summary>
     /// Thrown from <see cref="BackupMeta.CreateBackupDirectory(string)"/> on failure.
     /// </summary>
-    class BackupDirectoryCreateException : BackupMetaException
-    {
+    class BackupDirectoryCreateException : BackupMetaException {
         public BackupDirectoryCreateException(string targetDirectory, IReadOnlyList<string> attemptedDirectoryNames,
                 FilesystemException? innerException) :
-            base($"Failed to create backup directory in \"{targetDirectory}\"", innerException) {
+            base($"Failed to create new backup directory in \"{targetDirectory}\"", innerException) {
             TargetDirectory = targetDirectory;
             AttemptedDirectoryNames = attemptedDirectoryNames;
         }
@@ -166,9 +165,8 @@ namespace IncrementalBackup
         /// <summary>
         /// The exception produced from trying the last directory name.
         /// </summary>
-        public new FilesystemException? InnerException {
-            get => base.InnerException as FilesystemException;
-        }
+        public new FilesystemException? InnerException =>
+            base.InnerException as FilesystemException;
 
         /// <summary>
         /// The target directory in which the new backup directory was being created.

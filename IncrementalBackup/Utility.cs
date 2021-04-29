@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 
 
@@ -107,27 +106,6 @@ namespace IncrementalBackup
                 }
             }
             return false;
-        }
-    }
-
-    static class ExceptionExtensions
-    {
-        /// <summary>
-        /// Creates a detailed message by combining the messages from an exception and its nested exceptions.
-        /// </summary>
-        /// <param name="exception">The exception to create the detailed message from.</param>
-        /// <returns>The detailed exception message, or an empty string if all messages are empty.</returns>
-        public static string DetailedMessage(this Exception exception) {
-            static IEnumerable<string> WalkMessages(Exception? exception) {
-                while (exception != null) {
-                    if (exception.Message != string.Empty) {
-                        yield return exception.Message;
-                    }
-                    exception = exception.InnerException;
-                }
-            }
-
-            return string.Join(": ", WalkMessages(exception));
         }
     }
 }
