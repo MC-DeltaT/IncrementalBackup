@@ -137,6 +137,53 @@ namespace IncrementalBackup
                 }
             }
         }
+
+        /// <summary>
+        /// Calls a system filesystem function and converts commonly thrown system filesystem exceptions to instances
+        /// of <see cref="FilesystemException"/> or subclasses. <br/>
+        /// The default mapping of system exceptions to <see cref="FilesystemException"/> is as follows: <br/>
+        /// <list type="bullet">
+        /// <item><see cref="ArgumentException"/> to <see cref="InvalidPathException"/></item>
+        /// <item><see cref="PathTooLongException"/> to <see cref="InvalidPathException"/></item>
+        /// <item><see cref="NotSupportedException"/> to <see cref="InvalidPathException"/></item>
+        /// <item><see cref="DirectoryNotFoundException"/> to <see cref="PathNotFoundException"/></item>
+        /// <item><see cref="FileNotFoundException"/> to <see cref="PathNotFoundException"/></item>
+        /// <item><see cref="UnauthorizedAccessException"/> to <see cref="PathAccessDeniedException"/></item>
+        /// <item><see cref="SecurityException"/> to <see cref="PathAccessDeniedException"/></item>
+        /// <item><see cref="IOException"/> to <see cref="FilesystemException"/></item>
+        /// </list>
+        /// </summary>
+        /// <typeparam name="T">The return type of <paramref name="func"/>.</typeparam>
+        /// <param name="func">The system filesystem function to call.</param>
+        /// <param name="path">Gets the default value to use for <see cref="Path"/>.</param>
+        /// <param name="argumentExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="ArgumentException"/>.</param>
+        /// <param name="pathTooLongExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="PathTooLongException"/>.</param>
+        /// <param name="notSupportedExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="NotSupportedException"/>.</param>
+        /// <param name="directoryNotFoundExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="DirectoryNotFoundException"/>.</param>
+        /// <param name="fileNotFoundExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="FileNotFoundException"/>.</param>
+        /// <param name="unauthorisedAccessExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="UnauthorizedAccessException"/>.</param>
+        /// <param name="securityExceptionHandler">Specifies a custom exception mapping for
+        /// <see cref="SecurityException"/>.</param>
+        /// <param name="ioExceptionHandler">Specifies a custom exception mapping for <see cref="IOException"/>.
+        /// </param>
+        /// <exception cref="FilesystemException"/>
+        public static void ConvertSystemException(Action func, Func<string> path,
+                Func<ArgumentException, FilesystemException>? argumentExceptionHandler = null,
+                Func<PathTooLongException, FilesystemException>? pathTooLongExceptionHandler = null,
+                Func<NotSupportedException, FilesystemException>? notSupportedExceptionHandler = null,
+                Func<DirectoryNotFoundException, FilesystemException>? directoryNotFoundExceptionHandler = null,
+                Func<FileNotFoundException, FilesystemException>? fileNotFoundExceptionHandler = null,
+                Func<UnauthorizedAccessException, FilesystemException>? unauthorisedAccessExceptionHandler = null,
+                Func<SecurityException, FilesystemException>? securityExceptionHandler = null,
+                Func<IOException, FilesystemException>? ioExceptionHandler = null) {
+            ConvertSystemException(() => { func(); return 0; }, path);
+        }
     }
 
     /// <summary>

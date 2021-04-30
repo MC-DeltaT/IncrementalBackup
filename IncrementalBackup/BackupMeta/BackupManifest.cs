@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security;
 using System.Text;
 
 
@@ -38,10 +37,10 @@ namespace IncrementalBackup
             while (true) {
                 string? line;
                 try {
-                    line = stream.ReadLine();
+                    line = FilesystemException.ConvertSystemException(() => stream.ReadLine(), () => filePath);
                 }
-                catch (IOException e) {
-                    throw new BackupManifestFileIOException(filePath, new FilesystemException(filePath, e.Message));
+                catch (FilesystemException e) {
+                    throw new BackupManifestFileIOException(filePath, e);
                 }
 
                 if (line is null) {
@@ -111,13 +110,11 @@ namespace IncrementalBackup
         /// <exception cref="BackupManifestFileIOException">If the file could not be opened.</exception>
         private static StreamReader OpenFile(string filePath) {
             try {
-                return new(filePath, new UTF8Encoding(false, true));
+                return FilesystemException.ConvertSystemException(
+                    () => new StreamReader(filePath, new UTF8Encoding(false, true)), () => filePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException) {
-                throw new BackupManifestFileIOException(filePath, new InvalidPathException(filePath));
-            }
-            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
-                throw new BackupManifestFileIOException(filePath, new PathNotFoundException(filePath));
+            catch (FilesystemException e) {
+                throw new BackupManifestFileIOException(filePath, e);
             }
         }
 
@@ -154,16 +151,12 @@ namespace IncrementalBackup
         /// </exception>
         public BackupManifestWriter(string filePath) {
             try {
-                Stream = new(filePath, false, new UTF8Encoding(false, true));
+                Stream = FilesystemException.ConvertSystemException(
+                    () => new StreamWriter(filePath, false, new UTF8Encoding(false, true)),
+                    () => filePath);
             }
-            catch (DirectoryNotFoundException) {
-                throw new BackupManifestFileIOException(filePath, new PathNotFoundException(filePath));
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
-                throw new BackupManifestFileIOException(filePath, new PathAccessDeniedException(filePath));
-            }
-            catch (Exception e) when (e is IOException or ArgumentException) {
-                throw new BackupManifestFileIOException(filePath, new InvalidPathException(filePath));
+            catch (FilesystemException e) {
+                throw new BackupManifestFileIOException(filePath, e);
             }
             FilePath = filePath;
             PathDepth = 0;
@@ -186,14 +179,16 @@ namespace IncrementalBackup
         /// <param name="name">The name of the subdirectory to enter.</param>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void PushDirectory(string name) {
+            var encodedName = EncodeName(name);
+            var line = $"{BackupManifestFileConstants.PUSH_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
             try {
-                var encodedName = EncodeName(name);
-                var line = $"{BackupManifestFileConstants.PUSH_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
-                Stream.WriteLine(line);
-                Stream.Flush();
+                FilesystemException.ConvertSystemException(() => {
+                    Stream.WriteLine(line);
+                    Stream.Flush();
+                }, () => FilePath);
             }
-            catch (IOException e) {
-                throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupManifestFileIOException(FilePath, e);
             }
             PathDepth++;
         }
@@ -208,13 +203,15 @@ namespace IncrementalBackup
             if (PathDepth == 0) {
                 throw new InvalidOperationException("Current directory is already backup source directory.");
             }
+            var line = $"{BackupManifestFileConstants.POP_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}";
             try {
-                var line = $"{BackupManifestFileConstants.POP_DIRECTORY}{BackupManifestFileConstants.SEPARATOR}";
-                Stream.WriteLine(line);
-                Stream.Flush();
+                FilesystemException.ConvertSystemException(() => {
+                    Stream.WriteLine(line);
+                    Stream.Flush();
+                }, () => FilePath);
             }
-            catch (IOException e) {
-                throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupManifestFileIOException(FilePath, e);
             }
             PathDepth--;
         }
@@ -225,14 +222,16 @@ namespace IncrementalBackup
         /// <param name="name">The name of the file to record as backed up..</param>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
         public void RecordFile(string name) {
+            var encodedName = EncodeName(name);
+            var line = $"{BackupManifestFileConstants.RECORD_FILE}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
             try {
-                var encodedName = EncodeName(name);
-                var line = $"{BackupManifestFileConstants.RECORD_FILE}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
-                Stream.WriteLine(line);
-                Stream.Flush();
+                FilesystemException.ConvertSystemException(() => {
+                    Stream.WriteLine(line);
+                    Stream.Flush();
+                }, () => FilePath);
             }
-            catch (IOException e) {
-                throw new BackupManifestFileIOException(FilePath, new FilesystemException(FilePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupManifestFileIOException(FilePath, e);
             }
         }
 

@@ -125,18 +125,7 @@ namespace IncrementalBackup
         /// <exception cref="LoggingException">If the file could not be opened.</exception>
         public FileLogHandler(string path) {
             try {
-                try {
-                    Stream = File.CreateText(path);
-                }
-                catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                    throw new InvalidPathException(path);
-                }
-                catch (DirectoryNotFoundException) {
-                    throw new PathNotFoundException(path);
-                }
-                catch (UnauthorizedAccessException) {
-                    throw new PathAccessDeniedException(path);
-                }
+                Stream = FilesystemException.ConvertSystemException(() => File.CreateText(path), () => path);
             }
             catch (FilesystemException e) {
                 throw new LoggingException($"Failed to create/open log file \"{path}\": {e.Reason}", e);
@@ -158,12 +147,13 @@ namespace IncrementalBackup
         /// </exception>
         public void Log(LogLevel level, string message) {
             try {
-                Stream.Write(LogFormatter.FormatMessage(level, message));
-                Stream.Flush();
+                FilesystemException.ConvertSystemException(() => {
+                    Stream.Write(LogFormatter.FormatMessage(level, message));
+                    Stream.Flush();
+                }, () => FilePath);
             }
-            catch (IOException e) {
-                throw new LoggingException($"Failed to log to file \"{FilePath}\": {e.Message}",
-                    new FilesystemException(FilePath, e.Message));
+            catch (FilesystemException e) {
+                throw new LoggingException($"Failed to log to file \"{FilePath}\": {e.Reason}", e);
             }
         }
 

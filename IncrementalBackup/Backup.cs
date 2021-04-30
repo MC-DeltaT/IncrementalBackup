@@ -20,7 +20,7 @@ namespace IncrementalBackup
     );
 
     /// <summary>
-    /// Results of <see cref="IncrementalBackup.Backup.Run(BackupConfig, IReadOnlyList{PreviousBackup}, Logger)"/>.
+    /// Results of <see cref="IncrementalBackup.Backup.Backup(BackupConfig, IReadOnlyList{PreviousBackup}, string, BackupManifestWriter, Logger)"/>.
     /// </summary>
     /// <param name="PathsSkipped">Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
     /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
@@ -37,26 +37,24 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="config">The configuration of this backup run.</param>
         /// <param name="previousBackups">The existing backups for this source directory.</param>
+        /// <param name="backupPath">The path of the directory to contain the new backup.</param>
+        /// <param name="manifestWriter">Writes the backup manifest. Should be in a newly-constructed state.</param>
         /// <param name="logger">For logging of info during the backup.</param>
         /// <returns>The results of the backup.</returns>
         public static BackupResults Run(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups,
-                Logger logger) =>
-            new Backup(config, previousBackups, logger).Run();
-
-        /// <summary>
-        /// The name of the log file created in backup directories.
-        /// </summary>
-        private const string LOG_FILENAME = "log.txt";
+                string backupPath, BackupManifestWriter manifestWriter, Logger logger) =>
+            new Backup(config, previousBackups, backupPath, manifestWriter, logger).Run();
 
         private readonly BackupConfig Config;
         private readonly IReadOnlyList<PreviousBackup> PreviousBackups;
-        private readonly string BackupDirectory;
-        private readonly string BackupDataDirectory;
+        private readonly string BackupPath;
+        private readonly string BackupDataPath;
         private bool PathsSkipped;
         private readonly BackupManifestWriter ManifestWriter;
         private readonly Logger Logger;
 
-        private Backup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups, Logger logger) {
+        private Backup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups, string backupPath,
+                BackupManifestWriter manifestWriter, Logger logger) {
             var previousBackupsSorted = previousBackups.ToList();
             previousBackupsSorted.Sort((a, b) => DateTime.Compare(a.StartTime, b.StartTime));
 
@@ -64,45 +62,14 @@ namespace IncrementalBackup
             PreviousBackups = previousBackupsSorted;
             PathsSkipped = false;
             Logger = logger;
-            BackupDirectory = CreateBackupDirectory();
-            BackupDataDirectory = BackupMeta.BackupDataPath(BackupDirectory);
-            CreateLogFile(BackupDirectory, Logger);
-            ManifestWriter = new(BackupMeta.ManifestFilePath(BackupDirectory));
+            BackupPath = backupPath;
+            BackupDataPath = BackupMeta.BackupDataPath(BackupPath);
+            ManifestWriter = manifestWriter;
         }
 
         /// <summary>
-        /// Creates a new directory in the target directory for this backup. <br/>
-        /// If successful, writes to <see cref="Logger"/>
-        /// </summary>
-        /// <returns>The path to the created directory.</returns>
-        /// <exception cref="BackupDirectoryCreateException">If a new backup directory could not be created.
-        /// </exception>
-        private string CreateBackupDirectory() {
-            var path = BackupMeta.CreateBackupDirectory(Config.TargetDirectory);
-            Logger.Info($"Created backup directory \"{path}\"");
-            return path;
-        }
-
-        /// <summary>
-        /// Initialises logging to a file (with <see cref="FileLogHandler"/>) in the backup directory. <br/>
-        /// If creation of the log file fails, writes a warning to <see cref="Logger"/>.
-        /// </summary>
-        /// <param name="backupDirectory">The directory to create the log file in.</param>
-        /// <param name="logger">The logger instance to associate with the log file.</param>
-        private static void CreateLogFile(string backupDirectory, Logger logger) {
-            var path = Path.Join(backupDirectory, LOG_FILENAME);
-            try {
-                logger.FileHandler = new(path);
-            }
-            catch (LoggingException e) {
-                logger.Warning(e.Message);
-                return;
-            }
-            logger.Info($"Created log file \"{path}\"");
-        }
-
-        /// <summary>
-        /// Performs the back up.
+        /// Performs the back up. <br/>
+        /// Should not be called more than once per instance.
         /// </summary>
         /// <returns>The results of the backup.</returns>
         private BackupResults Run() {
@@ -111,11 +78,7 @@ namespace IncrementalBackup
             // as possible. It's also probably more useful to have some folders fully backed up rather than all folders
             // partially backed up (if using breadth-first), in the case the backup is stopped early.
 
-            PathsSkipped = false;
-
-            List<DirectoryInfo?> searchStack = new() {
-                new(Config.SourceDirectory)      // TODO: exception handling
-            };
+            List<DirectoryInfo?> searchStack = new();
             List<string> relativePathComponents = new();
 
             try {
@@ -124,7 +87,8 @@ namespace IncrementalBackup
                 searchStack.Add(root);
             }
             catch (FilesystemException e) {
-                throw new ...;      // TODO
+                throw new BackupException(
+                    $"Failed to enumerate source directory \"{Config.SourceDirectory}\": {e.Reason}", e);
             }
 
             bool isRoot = true;
@@ -220,7 +184,7 @@ namespace IncrementalBackup
         /// </returns>
         private bool BackUpDirectory(DirectoryInfo directory, string relativePath,
                 IEnumerable<string> relativePathComponents, bool isRoot, string fullPath) {
-            var backupPath = Path.Join(BackupDataDirectory, relativePath);
+            var backupPath = Path.Join(BackupDataPath, relativePath);
 
             try {
                 FilesystemException.ConvertSystemException(() => Directory.CreateDirectory(backupPath),

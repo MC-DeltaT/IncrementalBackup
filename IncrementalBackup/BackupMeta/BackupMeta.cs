@@ -15,7 +15,7 @@ namespace IncrementalBackup
         /// required.
         /// </summary>
         /// <param name="targetDirectory">The directory in which to create the backup directory.</param>
-        /// <returns>The path to the new backup directory.</returns>
+        /// <returns>The name of the new backup directory.</returns>
         /// <exception cref="BackupDirectoryCreateException">If the new directory could not be created, due to I/O
         /// errors, permission errors, etc.</exception>
         public static string CreateBackupDirectory(string targetDirectory) {
@@ -25,26 +25,17 @@ namespace IncrementalBackup
                 var name = Utility.RandomAlphaNumericString(BACKUP_DIRECTORY_NAME_LENGTH);
                 attemptedDirectories.Add(name);
 
-                var path = Path.Join(targetDirectory, name);
+                var path = BackupPath(targetDirectory, name);
 
                 FilesystemException? exception = null;
                 // Non-atomicity :|
                 if (!Directory.Exists(path) && !File.Exists(path)) {
                     try {
-                        Directory.CreateDirectory(path);
-                        return path;
+                        FilesystemException.ConvertSystemException(() => Directory.CreateDirectory(path), () => path);
+                        return name;
                     }
-                    catch (Exception e) when (e is ArgumentException or PathTooLongException or NotSupportedException) {
-                        exception = new InvalidPathException(path);
-                    }
-                    catch (DirectoryNotFoundException) {
-                        exception = new PathNotFoundException(path);
-                    }
-                    catch (UnauthorizedAccessException) {
-                        exception = new PathAccessDeniedException(path);
-                    }
-                    catch (IOException e) {
-                        exception = new FilesystemException(path, e.Message);
+                    catch (FilesystemException e) {
+                        exception = e;
                     }
                 }
 
@@ -62,6 +53,15 @@ namespace IncrementalBackup
         /// <returns>The path to the backup index file.</returns>
         public static string IndexFilePath(string targetDirectory) =>
             Path.Join(targetDirectory, INDEX_FILENAME);
+
+        /// <summary>
+        /// Forms the path to a backup directory.
+        /// </summary>
+        /// <param name="targetDirectory">The path of the target directory the backup is in.</param>
+        /// <param name="backupName">The name of the backup.</param>
+        /// <returns>The path to the backup directory.</returns>
+        public static string BackupPath(string targetDirectory, string backupName) =>
+            Path.Join(targetDirectory, backupName);
 
         /// <summary>
         /// Forms the path to a backup manifest file.
@@ -88,6 +88,14 @@ namespace IncrementalBackup
             Path.Join(backupDirectory, COMPLETE_INFO_FILENAME);
 
         /// <summary>
+        /// Forms the path to a backup log file.
+        /// </summary>
+        /// <param name="backupDirectory">The path of the backup directory the log file is in.</param>
+        /// <returns>The path to the backup log file.</returns>
+        public static string LogFilePath(string backupDirectory) =>
+            Path.Join(backupDirectory, LOG_FILENAME);
+
+        /// <summary>
         /// Forms the path to the data directory within a backup directory.
         /// </summary>
         /// <param name="backupDirectory">The path of the backup directory.</param>
@@ -111,6 +119,10 @@ namespace IncrementalBackup
         /// The name of the file used to store completion info for each backup.
         /// </summary>
         public const string COMPLETE_INFO_FILENAME = "completion.json";
+        /// <summary>
+        /// The name of the log file created in backup directories.
+        /// </summary>
+        public const string LOG_FILENAME = "log.txt";
         /// <summary>
         /// The name of the directory in the backup directory used to store the backed up files.
         /// </summary>

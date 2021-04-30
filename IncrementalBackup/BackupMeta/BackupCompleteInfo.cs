@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.Security;
 using System.Text.Json;
 
 
@@ -11,8 +10,11 @@ namespace IncrementalBackup
     /// </summary>
     /// <param name="EndTime">The UTC time at which the backup was completed (just after the last
     /// file was copied).</param>
+    /// <param name="PathsSkipped">Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
+    /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
     record BackupCompleteInfo(
-        DateTime EndTime
+        DateTime EndTime,
+        bool PathsSkipped
     );
 
     static class BackupCompleteInfoReader
@@ -28,19 +30,10 @@ namespace IncrementalBackup
         public static BackupCompleteInfo Read(string filePath) {
             byte[] bytes;
             try {
-                bytes = File.ReadAllBytes(filePath);
+                bytes = FilesystemException.ConvertSystemException(() => File.ReadAllBytes(filePath), () => filePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                throw new BackupCompleteInfoFileIOException(filePath, new InvalidPathException(filePath));
-            }
-            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
-                throw new BackupCompleteInfoFileIOException(filePath, new PathNotFoundException(filePath));
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
-                throw new BackupCompleteInfoFileIOException(filePath, new PathAccessDeniedException(filePath));
-            }
-            catch (IOException e) {
-                throw new BackupCompleteInfoFileIOException(filePath, new FilesystemException(filePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupCompleteInfoFileIOException(filePath, e);
             }
 
             BackupCompleteInfo? value;
@@ -71,19 +64,10 @@ namespace IncrementalBackup
         public static void Write(string filePath, BackupCompleteInfo value) {
             var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
             try {
-                File.WriteAllBytes(filePath, bytes);
+                FilesystemException.ConvertSystemException(() => File.WriteAllBytes(filePath, bytes), () => filePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                throw new BackupCompleteInfoFileIOException(filePath, new InvalidPathException(filePath));
-            }
-            catch (DirectoryNotFoundException) {
-                throw new BackupCompleteInfoFileIOException(filePath, new PathNotFoundException(filePath));
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
-                throw new BackupCompleteInfoFileIOException(filePath, new PathAccessDeniedException(filePath));
-            }
-            catch (IOException e) {
-                throw new BackupCompleteInfoFileIOException(filePath, new FilesystemException(filePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupCompleteInfoFileIOException(filePath, e);
             }
         }
     }

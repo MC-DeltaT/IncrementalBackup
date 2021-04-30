@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.Security;
 using System.Text.Json;
 
 
@@ -30,20 +29,10 @@ namespace IncrementalBackup
         public static BackupStartInfo Read(string filePath) {
             byte[] bytes;
             try {
-                bytes = File.ReadAllBytes(filePath);
+                bytes = FilesystemException.ConvertSystemException(() => File.ReadAllBytes(filePath), () => filePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                throw new BackupStartInfoFileIOException(filePath, new InvalidPathException(filePath));
-            }
-            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
-                throw new BackupStartInfoFileIOException(filePath, new PathNotFoundException(filePath));
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
-                throw new BackupStartInfoFileIOException(filePath, new PathAccessDeniedException(filePath));
-            }
-            catch (IOException e) {
-                throw new BackupStartInfoFileIOException(filePath,
-                    new FilesystemException(filePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupStartInfoFileIOException(filePath, e);
             }
 
             BackupStartInfo? value;
@@ -74,20 +63,10 @@ namespace IncrementalBackup
         public static void Write(string filePath, BackupStartInfo value) {
             var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
             try {
-                File.WriteAllBytes(filePath, bytes);
+                FilesystemException.ConvertSystemException(() => File.WriteAllBytes(filePath, bytes), () => filePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                throw new BackupStartInfoFileIOException(filePath, new InvalidPathException(filePath));
-            }
-            catch (DirectoryNotFoundException) {
-                throw new BackupStartInfoFileIOException(filePath, new PathNotFoundException(filePath));
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
-                throw new BackupStartInfoFileIOException(filePath, new PathAccessDeniedException(filePath));
-            }
-            catch (IOException e) {
-                throw new BackupStartInfoFileIOException(filePath,
-                    new FilesystemException(filePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupStartInfoFileIOException(filePath, e);
             }
         }
     }

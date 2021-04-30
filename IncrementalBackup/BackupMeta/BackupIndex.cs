@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security;
 using System.Text;
 
 
@@ -37,10 +36,10 @@ namespace IncrementalBackup
             while (true) {
                 string? line;
                 try {
-                    line = stream.ReadLine();
+                    line = FilesystemException.ConvertSystemException(() => stream.ReadLine(), () => filePath);
                 }
-                catch (IOException e) {
-                    throw new BackupIndexFileIOException(filePath, new FilesystemException(filePath, e.Message));
+                catch (FilesystemException e) {
+                    throw new BackupIndexFileIOException(filePath, e);
                 }
 
                 if (line is null) {
@@ -77,13 +76,11 @@ namespace IncrementalBackup
         /// <exception cref="BackupIndexFileIOException">If the file could not be opened.</exception>
         private static StreamReader OpenFile(string filePath) {
             try {
-                return new(filePath, new UTF8Encoding(false, true));
+                return FilesystemException.ConvertSystemException(
+                    () => new StreamReader(filePath, new UTF8Encoding(false, true)), () => filePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException) {
-                throw new BackupIndexFileIOException(filePath, new InvalidPathException(filePath));
-            }
-            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
-                throw new BackupIndexFileIOException(filePath, new PathNotFoundException(filePath));
+            catch (FilesystemException e) {
+                throw new BackupIndexFileIOException(filePath, e);
             }
         }
 
@@ -123,19 +120,12 @@ namespace IncrementalBackup
 
             var entry = $"{backupDirectory}{BackupIndexFileConstants.SEPARATOR}{EncodePath(backupSourcePath)}";
             try {
-                File.AppendAllText(indexFilePath, entry, new UTF8Encoding(false, true));
+                FilesystemException.ConvertSystemException(
+                    () => File.AppendAllText(indexFilePath, entry, new UTF8Encoding(false, true)),
+                    () => indexFilePath);
             }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
-                throw new BackupIndexFileIOException(indexFilePath, new InvalidPathException(indexFilePath));
-            }
-            catch (DirectoryNotFoundException) {
-                throw new BackupIndexFileIOException(indexFilePath, new PathNotFoundException(indexFilePath));
-            }
-            catch (Exception e) when (e is UnauthorizedAccessException or SecurityException) {
-                throw new BackupIndexFileIOException(indexFilePath, new PathAccessDeniedException(indexFilePath));
-            }
-            catch (IOException e) {
-                throw new BackupIndexFileIOException(indexFilePath, new FilesystemException(indexFilePath, e.Message));
+            catch (FilesystemException e) {
+                throw new BackupIndexFileIOException(indexFilePath, e);
             }
         }
 
