@@ -16,7 +16,7 @@ namespace IncrementalBackup
         /// Instantiates the <see cref="Application"/> instance and calls <see cref="Run(string[])"/>.
         /// </summary>
         static int Main(string[] cmdArgs) =>
-            (int)(new Application().Run(cmdArgs));
+            (int)new Application().Run(cmdArgs);
 
         /// <summary>
         /// Logger responsible for writing info to the console and log file.
@@ -34,33 +34,30 @@ namespace IncrementalBackup
         /// <returns>The process return code.</returns>
         private ProcessExitCode Run(string[] cmdArgs) {
             try {
-                BackupConfig config;
-                try {
-                    config = ParseCmdArgs(cmdArgs);
-                }
-                catch (InvalidCmdArgsException) {
-                    Console.Out.WriteLine(
-                        "Usage: IncrementalBackup.exe <source_dir> <target_dir> [exclude_path1 exclude_path2 ...]");
-                    return ProcessExitCode.InvalidArgs;
-                }
-
+                BackupConfig config = ParseCmdArgs(cmdArgs);
                 LogConfig(config);
+                var index = ReadBackupIndex(config.TargetDirectory);
+                var previousBackups = ReadPreviousBackups(config.SourceDirectory, config.TargetDirectory, index);
+                var (backupName, manifestWriter) = InitialiseBackup(config.SourceDirectory, config.TargetDirectory);
+                var results = DoBackup(config, previousBackups, backupName, manifestWriter);
+                var metadataWritten = CompleteBackup(config.SourceDirectory, config.TargetDirectory, backupName,
+                    results);
 
-                try {
-                    var index = ReadBackupIndex(config.TargetDirectory);
-                    var previousBackups = ReadPreviousBackups(config.SourceDirectory, config.TargetDirectory, index);
-                    var results = DoBackup(config, previousBackups);
-                    if (results.PathsSkipped) {
-                        return ProcessExitCode.SuccessSkippedFiles;
-                    }
-                    else {
-                        return ProcessExitCode.Success;
-                    }
+                if (!results.PathsSkipped && metadataWritten) {
+                    return ProcessExitCode.Success;
                 }
-                catch (Exception e) when (e is BackupMetaException) {
-                    Logger.Error(e.Message);
-                    return ProcessExitCode.RuntimeError;
+                else {
+                    return ProcessExitCode.Warning;
                 }
+            }
+            catch (InvalidCmdArgsError) {
+                Console.Out.WriteLine(
+                    "Usage: IncrementalBackup.exe <source_dir> <target_dir> [exclude_path1 exclude_path2 ...]");
+                return ProcessExitCode.InvalidArgs;
+            }
+            catch (ApplicationRuntimeError e) {
+                Logger.Error(e.Message);
+                return ProcessExitCode.RuntimeError;
             }
             catch (Exception e) {
                 Logger.Error($"Unhandled exception: {e}");
@@ -74,15 +71,15 @@ namespace IncrementalBackup
         /// </summary>
         /// <remarks>
         /// Note that the filesystem paths in the returned <see cref="BackupConfig"/> are not guaranteed to be valid,
-        /// as this is unfortunately not really possible to check without just doing the desired I/O operation. <br/>
+        /// as this is unfortunately not really possible to check without actually doing the desired I/O operation. <br/>
         /// However, some invalid paths are detected by this method.
         /// </remarks>
         /// <param name="args">The command line arguments.</param>
         /// <returns>The <see cref="BackupConfig"/> parsed from the arguments.</returns>
-        /// <exception cref="InvalidCmdArgsException">If the command line arguments are invalid.</exception>
+        /// <exception cref="InvalidCmdArgsError">If the command line arguments are invalid.</exception>
         private BackupConfig ParseCmdArgs(string[] args) {
             if (args.Length < 2) {
-                throw new InvalidCmdArgsException();
+                throw new InvalidCmdArgsError();
             }
 
             var sourceDirectory = args[0];
@@ -127,7 +124,7 @@ namespace IncrementalBackup
                 return new(sourceDirectory, targetDirectory, parsedExcludePaths);
             }
             else {
-                throw new InvalidCmdArgsException();
+                throw new InvalidCmdArgsError();
             }
         }
 
@@ -148,16 +145,20 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="targetDirectory">The target directory to read from.</param>
         /// <returns>The read backup index, or <c>null</c> if the index file does not exist.</returns>
-        /// <exception cref="BackupIndexFileException">If the index file exists, but could not be read/parsed.
+        /// <exception cref="ApplicationError">If the index file exists, but could not be read/parsed.
         /// </exception>
         /// <seealso cref="BackupMeta.ReadIndexFile(string)"/>
         private BackupIndex? ReadBackupIndex(string targetDirectory) {
+            var indexFilePath = BackupMeta.IndexFilePath(targetDirectory);
             try {
-                return BackupIndexReader.Read(BackupMeta.IndexFilePath(targetDirectory));
+                return BackupIndexReader.Read(indexFilePath);
             }
             catch (BackupIndexFileIOException e) when (e.InnerException is PathNotFoundException) {
                 Logger.Info("No existing backup index found.");
                 return null;
+            }
+            catch (BackupIndexFileException e) {
+                throw new ApplicationRuntimeError(e.Message);
             }
         }
 
@@ -180,54 +181,60 @@ namespace IncrementalBackup
             if (index is null) {
                 return new();
             }
-            else {
-                List<PreviousBackup> previousBackups = new();
-                foreach (var pair in index.Backups) {
-                    var backupName = pair.Key;
-                    var backupSourceDirectory = pair.Value;
 
-                    // Paths are assumed to be already normalised.
-                    if (string.Compare(sourceDirectory, backupSourceDirectory, true) == 0) {
-                        var backupPath = Path.Join(targetDirectory, backupName);
+            List<PreviousBackup> previousBackups = new();
+            foreach (var pair in index.Backups) {
+                var backupName = pair.Key;
+                var backupSourceDirectory = pair.Value;
 
-                        BackupStartInfo startInfo;
-                        try {
-                            startInfo = BackupStartInfoReader.Read(BackupMeta.StartInfoFilePath(backupPath));
-                        }
-                        catch (BackupStartInfoFileException e) {
-                            Logger.Warning(
-                                $"Failed to read metadata in previous backup \"{backupPath}\": {e.Message}");
-                            continue;
-                        }
+                // Paths are assumed to be already normalised.
+                if (string.Compare(sourceDirectory, backupSourceDirectory, true) == 0) {
+                    var backupPath = Path.Join(targetDirectory, backupName);
 
-                        // We could just assume the index file and start info file are consistent, but it might be a good
-                        // idea to check just in case something goes particularly wrong.
-                        if (string.Compare(sourceDirectory, startInfo.SourceDirectory, true) != 0) {
-                            Logger.Warning(
-                                $"Source directory of backup start info in \"{backupPath}\" doesn't match backup index.");
-                            continue;
-                        }
-
-                        BackupManifest manifest;
-                        try {
-                            manifest = BackupManifestReader.Read(BackupMeta.ManifestFilePath(backupPath));
-                        }
-                        catch (BackupManifestFileException e) {
-                            Logger.Warning(
-                                $"Failed to read metadata in previous backup \"{backupPath}\": {e.Message}");
-                            continue;
-                        }
-                        previousBackups.Add(new(startInfo.StartTime, manifest));
+                    var startInfoFilePath = BackupMeta.StartInfoFilePath(backupPath);
+                    BackupStartInfo startInfo;
+                    try {
+                        startInfo = BackupStartInfoReader.Read(startInfoFilePath);
                     }
-                }
+                    catch (BackupStartInfoFileException e) {
+                        Logger.Warning($"Failed to read metadata of previous backup \"{backupPath}\": {e.Message}");
+                        continue;
+                    }
 
-                Logger.Info($"{previousBackups.Count} previous backups found for this source directory.");
-                return previousBackups;
+                    // We could just assume the index file and start info file are consistent, but it might be a
+                    // good idea to check just in case something goes particularly wrong.
+                    if (string.Compare(sourceDirectory, startInfo.SourceDirectory, true) != 0) {
+                        Logger.Warning(
+                            $"Source directory of backup start info in \"{backupPath}\" doesn't match backup index.");
+                        continue;
+                    }
+
+                    var manifestFilePath = BackupMeta.ManifestFilePath(backupPath);
+                    BackupManifest manifest;
+                    try {
+                        manifest = BackupManifestReader.Read(manifestFilePath);
+                    }
+                    catch (BackupManifestFileException e) {
+                        Logger.Warning($"Failed to read metadata of previous backup \"{backupPath}\": {e.Message}");
+                        continue;
+                    }
+                    previousBackups.Add(new(startInfo.StartTime, manifest));
+                }
             }
+
+            Logger.Info($"{previousBackups.Count} previous backups found for this source directory.");
+            return previousBackups;
         }
 
         public (string, BackupManifestWriter) InitialiseBackup(string sourceDirectory, string targetDirectory) {
-            var backupName = BackupMeta.CreateBackupDirectory(targetDirectory);        // TODO: exception handling
+            string backupName;
+            try {
+                backupName = BackupMeta.CreateBackupDirectory(targetDirectory);
+            }
+            catch (BackupDirectoryCreateException) {
+                throw new ApplicationRuntimeError("Failed to create new backup directory");
+            }
+
             var backupPath = BackupMeta.BackupPath(targetDirectory, backupName);
 
             var logFilePath = BackupMeta.LogFilePath(backupPath);
@@ -240,11 +247,23 @@ namespace IncrementalBackup
                 Logger.Warning(e.Message);
             }
 
-            BackupManifestWriter manifestWriter = new(BackupMeta.ManifestFilePath(backupPath));        // TODO: exception handling
+            BackupManifestWriter manifestWriter;
+            try {
+                manifestWriter = new(BackupMeta.ManifestFilePath(backupPath));
+            }
+            catch (BackupManifestFileIOException e) {
+                throw new ApplicationRuntimeError(
+                    $"Failed to create backup manifest file: {e.InnerException.Reason}");
+            }
 
             BackupStartInfo startInfo = new(sourceDirectory, DateTime.UtcNow);
             var startInfoFilePath = BackupMeta.StartInfoFilePath(backupPath);
-            BackupStartInfoWriter.Write(startInfoFilePath, startInfo);
+            try {
+                BackupStartInfoWriter.Write(startInfoFilePath, startInfo);
+            }
+            catch (BackupStartInfoFileIOException e) {
+                throw new ApplicationRuntimeError($"Failed to write backup start info: {e.InnerException.Reason}");
+            }
 
             return (backupName, manifestWriter);
         }
@@ -254,24 +273,56 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="config">The configuration of this backup.</param>
         /// <param name="previousBackups">The existing backup data for this source directory.</param>
+        /// <param name="backupName">The name of the new backup directory.</param>
+        /// <param name="manifestWriter">Writes the backup manifest. Must be in a newly-constructed state.</param>
         /// <returns>Results of the backup.</returns>
-        /// <seealso cref="Backup.Run(BackupConfig, IReadOnlyList{BackupManifest}, Logger)"/>
-        private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups) =>
-            Backup.Run(config, previousBackups, Logger);
+        /// <seealso cref="Backup.Run(string, IReadOnlyList{string}, IReadOnlyList{PreviousBackup}, string, BackupManifestWriter, Logger)"/>
+        private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups,
+                string backupName, BackupManifestWriter manifestWriter) =>
+            Backup.Run(config.SourceDirectory, config.ExcludePaths, previousBackups,
+                BackupMeta.BackupPath(config.TargetDirectory, backupName), manifestWriter, Logger);
 
-        public void CompleteBackup(string sourceDirectory, string targetDirectory, string backupName,
+        public bool CompleteBackup(string sourceDirectory, string targetDirectory, string backupName,
                 BackupResults results) {
             var backupPath = BackupMeta.BackupPath(targetDirectory, backupName);
 
+            bool success = true;
+
             BackupCompleteInfo completionInfo = new(DateTime.UtcNow, results.PathsSkipped);
             var completionInfoFilePath = BackupMeta.CompleteInfoFilePath(backupPath);
-
-            BackupCompleteInfoWriter.Write(completionInfoFilePath, completionInfo);     // TODO: exception handling
+            try {
+                BackupCompleteInfoWriter.Write(completionInfoFilePath, completionInfo);
+            }
+            catch (BackupCompleteInfoFileIOException e) {
+                Logger.Warning($"Failed to write backup completion info: {e.InnerException.Reason}");
+                success = false;
+            }
 
             var indexFilePath = BackupMeta.IndexFilePath(targetDirectory);
-            BackupIndexWriter.AddEntry(indexFilePath, backupPath, sourceDirectory);     // TODO: exception handling
+            try {
+                BackupIndexWriter.AddEntry(indexFilePath, backupPath, sourceDirectory);
+            }
+            catch (BackupIndexFileIOException e) {
+                Logger.Warning($"Failed to add backup to backup index: {e.InnerException.Reason}");
+                success = false;
+            }
+
+            return success;
         }
     }
+
+    /// <summary>
+    /// Configuration of a backup run.
+    /// </summary>
+    /// <param name="SourceDirectory">The directory to be backed up. Should be fully qualified and normalised.</param>
+    /// <param name="TargetDirectory">The directory to back up to. Should be fully qualified and normalised.</param>
+    /// <param name="ExcludePaths">A list of files and folders that are excluded from being backed up.
+    /// Each path should be fully qualified and normalised.</param>
+    record BackupConfig(
+        string SourceDirectory,
+        string TargetDirectory,
+        IReadOnlyList<string> ExcludePaths
+    );
 
     /// <summary>
     /// Information on a previous backup.
@@ -294,9 +345,10 @@ namespace IncrementalBackup
         /// </summary>
         Success = 0,
         /// <summary>
-        /// Some files were not backed up due to I/O errors, permission errors, etc.
+        /// The backup completed mostly successfully, but with some warnings (e.g. files were skipped or metadata
+        /// couldn't be saved).
         /// </summary>
-        SuccessSkippedFiles = 1,
+        Warning = 1,
         /// <summary>
         /// The backup was aborted due to invalid command line arguments.
         /// </summary>
@@ -312,11 +364,21 @@ namespace IncrementalBackup
     }
 
     /// <summary>
+    /// Indicates a high-level operation failed and as a result the application cannot continue. <br/>
+    /// <see cref="Exception.Message"/> is the message to write to the logs.
+    /// </summary>
+    class ApplicationRuntimeError : Exception
+    {
+        public ApplicationRuntimeError(string message) :
+            base(message) { }
+    }
+
+    /// <summary>
     /// Indicates the application's command line arguments are invalid.
     /// </summary>
-    class InvalidCmdArgsException : Exception
+    class InvalidCmdArgsError : ApplicationRuntimeError
     {
-        public InvalidCmdArgsException() :
-            base("Invalid command line arguments", null) { }
+        public InvalidCmdArgsError() :
+            base("Invalid command line arguments") { }
     }
 }

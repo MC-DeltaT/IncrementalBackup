@@ -7,20 +7,7 @@ using System.Linq;
 namespace IncrementalBackup
 {
     /// <summary>
-    /// Configuration of a backup run.
-    /// </summary>
-    /// <param name="SourceDirectory">The directory to be backed up. Should be fully qualified and normalised.</param>
-    /// <param name="TargetDirectory">The directory to back up to. Should be fully qualified and normalised.</param>
-    /// <param name="ExcludePaths">A list of files and folders that are excluded from being backed up.
-    /// Each path should be fully qualified and normalised.</param>
-    record BackupConfig(
-        string SourceDirectory,
-        string TargetDirectory,
-        IReadOnlyList<string> ExcludePaths
-    );
-
-    /// <summary>
-    /// Results of <see cref="IncrementalBackup.Backup.Backup(BackupConfig, IReadOnlyList{PreviousBackup}, string, BackupManifestWriter, Logger)"/>.
+    /// Results of a backup run.
     /// </summary>
     /// <param name="PathsSkipped">Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
     /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
@@ -35,36 +22,41 @@ namespace IncrementalBackup
         /// from the source directory to it. <br/>
         /// Also creates a new log file in the backup directory and attaches it to <paramref name="logger"/>.
         /// </summary>
-        /// <param name="config">The configuration of this backup run.</param>
+        /// <param name="sourceDirectory">The path of the directory to back up.</param>
+        /// <param name="excludePaths">Paths to exclude from the backup. Should be normalised.</param>
         /// <param name="previousBackups">The existing backups for this source directory.</param>
         /// <param name="backupPath">The path of the directory to contain the new backup.</param>
-        /// <param name="manifestWriter">Writes the backup manifest. Should be in a newly-constructed state.</param>
+        /// <param name="manifestWriter">Writes the backup manifest. Must be in a newly-constructed state.</param>
         /// <param name="logger">For logging of info during the backup.</param>
         /// <returns>The results of the backup.</returns>
-        public static BackupResults Run(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups,
-                string backupPath, BackupManifestWriter manifestWriter, Logger logger) =>
-            new Backup(config, previousBackups, backupPath, manifestWriter, logger).Run();
+        public static BackupResults Run(string sourceDirectory, IReadOnlyList<string> excludePaths,
+                IReadOnlyList<PreviousBackup> previousBackups, string backupPath, BackupManifestWriter manifestWriter,
+                Logger logger) =>
+            new Backup(sourceDirectory, excludePaths, previousBackups, backupPath, manifestWriter, logger).Run();
 
-        private readonly BackupConfig Config;
+        private readonly string SourceDirectory;
+        private readonly IReadOnlyList<string> ExcludePaths;
         private readonly IReadOnlyList<PreviousBackup> PreviousBackups;
         private readonly string BackupPath;
         private readonly string BackupDataPath;
-        private bool PathsSkipped;
         private readonly BackupManifestWriter ManifestWriter;
         private readonly Logger Logger;
+        private bool PathsSkipped;
 
-        private Backup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups, string backupPath,
-                BackupManifestWriter manifestWriter, Logger logger) {
+        private Backup(string sourceDirectory, IReadOnlyList<string> excludePaths,
+                IReadOnlyList<PreviousBackup> previousBackups, string backupPath, BackupManifestWriter manifestWriter,
+                Logger logger) {
             var previousBackupsSorted = previousBackups.ToList();
             previousBackupsSorted.Sort((a, b) => DateTime.Compare(a.StartTime, b.StartTime));
 
-            Config = config;
+            SourceDirectory = sourceDirectory;
+            ExcludePaths = excludePaths;
             PreviousBackups = previousBackupsSorted;
-            PathsSkipped = false;
-            Logger = logger;
             BackupPath = backupPath;
             BackupDataPath = BackupMeta.BackupDataPath(BackupPath);
             ManifestWriter = manifestWriter;
+            Logger = logger;
+            PathsSkipped = false;
         }
 
         /// <summary>
@@ -82,13 +74,13 @@ namespace IncrementalBackup
             List<string> relativePathComponents = new();
 
             try {
-                var root = FilesystemException.ConvertSystemException(() => new DirectoryInfo(Config.SourceDirectory),
-                    () => Config.SourceDirectory);
+                var root = FilesystemException.ConvertSystemException(() => new DirectoryInfo(SourceDirectory),
+                    () => SourceDirectory);
                 searchStack.Add(root);
             }
             catch (FilesystemException e) {
                 throw new BackupException(
-                    $"Failed to enumerate source directory \"{Config.SourceDirectory}\": {e.Reason}", e);
+                    $"Failed to enumerate source directory \"{SourceDirectory}\": {e.Reason}", e);
             }
 
             bool isRoot = true;
@@ -97,8 +89,17 @@ namespace IncrementalBackup
                 searchStack.RemoveAt(searchStack.Count - 1);
 
                 if (currentDirectory is null) {
+                    try {
+                        ManifestWriter.PopDirectory();      // TODO: exception handling
+                    }
+                    catch (BackupManifestFileIOException e) {
+                        Logger.Warning(
+                            $"Failed to write to backup manifest file ({e.InnerException.Reason}); stopping backup");
+                        PathsSkipped = true;
+                        break;
+                    }
+
                     relativePathComponents.RemoveAt(relativePathComponents.Count - 1);
-                    ManifestWriter.PopDirectory();
                 }
                 else {
                     // Unfortunately we have these inelegant checks for the backup source directory, because that's
@@ -108,15 +109,14 @@ namespace IncrementalBackup
                     }
 
                     string relativePath = string.Join(Path.DirectorySeparatorChar, relativePathComponents);
-                    Lazy<string> fullPath = new(() => Path.Join(Config.SourceDirectory, relativePath), false);
+                    Lazy<string> fullPath = new(() => Path.Join(SourceDirectory, relativePath), false);
 
                     // Probably a good idea to get the full path from the system rather than form it ourselves, to make
                     // sure it's normalised correctly.
                     string? fullPathNormalised = null;
                     try {
                         fullPathNormalised = FilesystemException.ConvertSystemException(
-                            () => currentDirectory.FullName,
-                            () => fullPath.Value);
+                            () => currentDirectory.FullName, () => fullPath.Value);
                     }
                     catch (FilesystemException e) {
                         Logger.Warning(
@@ -133,6 +133,7 @@ namespace IncrementalBackup
                                 relativePathComponents, isRoot, fullPathNormalised);
 
                             if (!isRoot && directoryRecorded) {
+                                // null marks backtracking to the parent directory.
                                 searchStack.Add(null);
                             }
 
@@ -140,11 +141,11 @@ namespace IncrementalBackup
                             try {
                                 subdirectories = FilesystemException.ConvertSystemException(
                                     currentDirectory.GetDirectories,
-                                    () => fullPathNormalised!);
+                                    () => fullPathNormalised);
                             }
                             catch (FilesystemException e) {
                                 Logger.Warning(
-                                    $"Failed to enumerate subdirectories of \"{fullPath.Value}\": ({e.Reason}); skipping");
+                                    $"Failed to enumerate subdirectories of \"{fullPath.Value}\" ({e.Reason}); skipping");
                                 PathsSkipped = true;
                             }
                             if (subdirectories is not null) {
@@ -158,9 +159,9 @@ namespace IncrementalBackup
             } while (searchStack.Count > 0);
 
             // The search is kinda tricky and too ages to figure out - I don't trust that it fully works.
-            if (ManifestWriter.PathDepth != 0) {
+            if (ManifestWriter.PathDepth != relativePathComponents.Count) {
                 throw new LogicException(
-                    $"Manifest writer path depth should be 0 after backup, but is {ManifestWriter.PathDepth}");
+                    $"Manifest writer path depth should be {relativePathComponents.Count} after backup, but is {ManifestWriter.PathDepth}");
             }
 
             return new(PathsSkipped);
@@ -278,15 +279,15 @@ namespace IncrementalBackup
         /// <param name="fullDirectoryPath">The full path to the file's parent directory.</param>
         private void BackUpFile(FileInfo file, string directoryBackupPath, string fullDirectoryPath) {
             Lazy<string> fullFilePath = new(() => Path.Join(fullDirectoryPath, file.Name), false);
-            var backupPath = Path.Join(directoryBackupPath, file.Name);
+            var fileBackupPath = Path.Join(directoryBackupPath, file.Name);
 
             try {
                 // I think if access is denied it must be due to the destination path, because we already have a
                 // loaded FileInfo for the source file (which should imply permission to read).
 
                 FilesystemException.ConvertSystemException(
-                    () => file.CopyTo(backupPath, true),
-                    () => backupPath,
+                    () => file.CopyTo(fileBackupPath, true),
+                    () => fileBackupPath,
                     // Don't know which path the exception came from :/
                     ioExceptionHandler: (e) => new FilesystemException(null, e.Message));
             }
@@ -353,8 +354,7 @@ namespace IncrementalBackup
         /// <returns><c>true</c> if the path is excluded from the back up, otherwise <c>false</c>.</returns>
         private bool IsPathExcluded(string path) {
             path = Utility.RemoveTrailingDirSep(path);
-            return Config.ExcludePaths.Any(
-                p => string.Compare(path, Utility.RemoveTrailingDirSep(p), true) == 0);
+            return ExcludePaths.Any(p => string.Compare(path, Utility.RemoveTrailingDirSep(p), true) == 0);
         }
     }
 

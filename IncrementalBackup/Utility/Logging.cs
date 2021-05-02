@@ -102,8 +102,9 @@ namespace IncrementalBackup
         /// </exception>
         public void Log(LogLevel level, string message) {
             var consoleStream = level == LogLevel.Error ? Console.Error : Console.Out;
+            var formattedMessage = LogFormatter.FormatMessage(level, message);
             try {
-                consoleStream.Write(LogFormatter.FormatMessage(level, message));
+                consoleStream.Write(formattedMessage);
                 consoleStream.Flush();
             }
             catch (IOException e) {
@@ -146,9 +147,10 @@ namespace IncrementalBackup
         /// <exception cref="LoggingException">If the message could not be written to the file due to I/O errors.
         /// </exception>
         public void Log(LogLevel level, string message) {
+            var formattedMessage = LogFormatter.FormatMessage(level, message);
             try {
                 FilesystemException.ConvertSystemException(() => {
-                    Stream.Write(LogFormatter.FormatMessage(level, message));
+                    Stream.Write(formattedMessage);
                     Stream.Flush();
                 }, () => FilePath);
             }
