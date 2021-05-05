@@ -182,7 +182,11 @@ namespace IncrementalBackup
                 Func<UnauthorizedAccessException, FilesystemException>? unauthorisedAccessExceptionHandler = null,
                 Func<SecurityException, FilesystemException>? securityExceptionHandler = null,
                 Func<IOException, FilesystemException>? ioExceptionHandler = null) {
-            ConvertSystemException(() => { func(); return 0; }, path);
+            ConvertSystemException(() => { func(); return 0; }, path,
+                argumentExceptionHandler, pathTooLongExceptionHandler, notSupportedExceptionHandler,
+                directoryNotFoundExceptionHandler, fileNotFoundExceptionHandler,
+                unauthorisedAccessExceptionHandler, securityExceptionHandler,
+                ioExceptionHandler);
         }
     }
 

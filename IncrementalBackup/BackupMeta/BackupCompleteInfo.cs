@@ -12,9 +12,12 @@ namespace IncrementalBackup
     /// file was copied).</param>
     /// <param name="PathsSkipped">Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
     /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
+    /// <param name="ManifestComplete">Indicates whether all files and directories backed up were recorded in the
+    /// backup manifest file.</param>
     record BackupCompleteInfo(
         DateTime EndTime,
-        bool PathsSkipped
+        bool PathsSkipped,
+        bool ManifestComplete
     );
 
     static class BackupCompleteInfoReader

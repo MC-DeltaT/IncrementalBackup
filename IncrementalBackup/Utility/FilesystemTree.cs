@@ -10,6 +10,8 @@ namespace IncrementalBackup
     {
         public DirectoryNode(string name) {
             Name = name;
+            Files = new();
+            Subdirectories = new();
         }
 
         /// <summary>
@@ -19,10 +21,10 @@ namespace IncrementalBackup
         /// <summary>
         /// Files directly contained in this directory.
         /// </summary>
-        public List<string> Files = new();
+        public List<string> Files;
         /// <summary>
         /// Directories directly contained in this directory.
         /// </summary>
-        public List<DirectoryNode> Subdirectories = new();
+        public List<DirectoryNode> Subdirectories;
     }
 }

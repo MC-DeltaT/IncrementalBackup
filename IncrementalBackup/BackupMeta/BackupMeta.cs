@@ -14,18 +14,18 @@ namespace IncrementalBackup
         /// Creates a new randomly-named backup directory in the given directory. Creates the given directory too, if
         /// required.
         /// </summary>
-        /// <param name="targetDirectory">The directory in which to create the backup directory.</param>
+        /// <param name="targetPath">The path of the directory in which to create the backup directory.</param>
         /// <returns>The name of the new backup directory.</returns>
         /// <exception cref="BackupDirectoryCreateException">If the new directory could not be created, due to I/O
         /// errors, permission errors, etc.</exception>
-        public static string CreateBackupDirectory(string targetDirectory) {
+        public static string CreateBackupDirectory(string targetPath) {
             var retries = BACKUP_DIRECTORY_CREATION_RETRIES;
-            List<string> attemptedDirectories = new();
+            List<string> attemptedDirectoryNames = new();
             while (true) {
                 var name = Utility.RandomAlphaNumericString(BACKUP_DIRECTORY_NAME_LENGTH);
-                attemptedDirectories.Add(name);
+                attemptedDirectoryNames.Add(name);
 
-                var path = BackupPath(targetDirectory, name);
+                var path = BackupPath(targetPath, name);
 
                 FilesystemException? exception = null;
                 // Non-atomicity :|
@@ -40,7 +40,7 @@ namespace IncrementalBackup
                 }
 
                 if (retries <= 0) {
-                    throw new BackupDirectoryCreateException(targetDirectory, attemptedDirectories, exception);
+                    throw new BackupDirectoryCreateException(targetPath, attemptedDirectoryNames, exception);
                 }
                 retries--;
             }
@@ -49,59 +49,59 @@ namespace IncrementalBackup
         /// <summary>
         /// Forms the path to a backup index file.
         /// </summary>
-        /// <param name="targetDirectory">The path of the target directory the index file is in.</param>
+        /// <param name="targetPath">The path of the target directory the index file is in.</param>
         /// <returns>The path to the backup index file.</returns>
-        public static string IndexFilePath(string targetDirectory) =>
-            Path.Join(targetDirectory, INDEX_FILENAME);
+        public static string IndexFilePath(string targetPath) =>
+            Path.Join(targetPath, INDEX_FILENAME);
 
         /// <summary>
         /// Forms the path to a backup directory.
         /// </summary>
-        /// <param name="targetDirectory">The path of the target directory the backup is in.</param>
+        /// <param name="targetPath">The path of the target directory the backup is in.</param>
         /// <param name="backupName">The name of the backup.</param>
         /// <returns>The path to the backup directory.</returns>
-        public static string BackupPath(string targetDirectory, string backupName) =>
-            Path.Join(targetDirectory, backupName);
+        public static string BackupPath(string targetPath, string backupName) =>
+            Path.Join(targetPath, backupName);
 
         /// <summary>
         /// Forms the path to a backup manifest file.
         /// </summary>
-        /// <param name="backupDirectory">The path of the backup directory the manifest file is in.</param>
+        /// <param name="backupPath">The path of the backup directory the manifest file is in.</param>
         /// <returns>The path to the backup manifest file.</returns>
-        public static string ManifestFilePath(string backupDirectory) =>
-            Path.Join(backupDirectory, MANIFEST_FILENAME);
+        public static string ManifestFilePath(string backupPath) =>
+            Path.Join(backupPath, MANIFEST_FILENAME);
 
         /// <summary>
         /// Forms the path to a backup start info file.
         /// </summary>
-        /// <param name="backupDirectory">The path of the backup directory the start info file is in.</param>
+        /// <param name="backupPath">The path of the backup directory the start info file is in.</param>
         /// <returns>The path to the backup start info file.</returns>
-        public static string StartInfoFilePath(string backupDirectory) =>
-            Path.Join(backupDirectory, START_INFO_FILENAME);
+        public static string StartInfoFilePath(string backupPath) =>
+            Path.Join(backupPath, START_INFO_FILENAME);
 
         /// <summary>
         /// Forms the path to a backup completion info file.
         /// </summary>
-        /// <param name="backupDirectory">The path of the backup directory the completion info file is in.</param>
+        /// <param name="backupPath">The path of the backup directory the completion info file is in.</param>
         /// <returns>The path to the backup completion info file.</returns>
-        public static string CompleteInfoFilePath(string backupDirectory) =>
-            Path.Join(backupDirectory, COMPLETE_INFO_FILENAME);
+        public static string CompleteInfoFilePath(string backupPath) =>
+            Path.Join(backupPath, COMPLETE_INFO_FILENAME);
 
         /// <summary>
         /// Forms the path to a backup log file.
         /// </summary>
-        /// <param name="backupDirectory">The path of the backup directory the log file is in.</param>
+        /// <param name="backupPath">The path of the backup directory the log file is in.</param>
         /// <returns>The path to the backup log file.</returns>
-        public static string LogFilePath(string backupDirectory) =>
-            Path.Join(backupDirectory, LOG_FILENAME);
+        public static string LogFilePath(string backupPath) =>
+            Path.Join(backupPath, LOG_FILENAME);
 
         /// <summary>
         /// Forms the path to the data directory within a backup directory.
         /// </summary>
-        /// <param name="backupDirectory">The path of the backup directory.</param>
+        /// <param name="backupPath">The path of the backup directory.</param>
         /// <returns>The path to the backup data directory.</returns>
-        public static string BackupDataPath(string backupDirectory) =>
-            Path.Join(backupDirectory, DATA_DIRECTORY);
+        public static string BackupDataPath(string backupPath) =>
+            Path.Join(backupPath, DATA_DIRECTORY_NAME);
 
         /// <summary>
         /// The name of the file used to store the backup index in a target directory.
@@ -126,7 +126,7 @@ namespace IncrementalBackup
         /// <summary>
         /// The name of the directory in the backup directory used to store the backed up files.
         /// </summary>
-        public const string DATA_DIRECTORY = "data";
+        public const string DATA_DIRECTORY_NAME = "data";
         /// <summary>
         /// The length of the randomly-generated backup folder names.
         /// </summary>
@@ -167,10 +167,10 @@ namespace IncrementalBackup
     /// Thrown from <see cref="BackupMeta.CreateBackupDirectory(string)"/> on failure.
     /// </summary>
     class BackupDirectoryCreateException : BackupMetaException {
-        public BackupDirectoryCreateException(string targetDirectory, IReadOnlyList<string> attemptedDirectoryNames,
+        public BackupDirectoryCreateException(string targetPath, IReadOnlyList<string> attemptedDirectoryNames,
                 FilesystemException? innerException) :
-            base($"Failed to create new backup directory in \"{targetDirectory}\"", innerException) {
-            TargetDirectory = targetDirectory;
+            base($"Failed to create new backup directory in \"{targetPath}\"", innerException) {
+            TargetPath = targetPath;
             AttemptedDirectoryNames = attemptedDirectoryNames;
         }
 
@@ -181,9 +181,9 @@ namespace IncrementalBackup
             base.InnerException as FilesystemException;
 
         /// <summary>
-        /// The target directory in which the new backup directory was being created.
+        /// The path of the target directory in which the new backup directory was being created.
         /// </summary>
-        public string TargetDirectory;
+        public string TargetPath;
 
         /// <summary>
         /// The new backup directory names which were tried (and failed).
@@ -201,14 +201,14 @@ namespace IncrementalBackup
     /// </remarks>
     class BackupMetadataInconsistentException : BackupMetaException
     {
-        public BackupMetadataInconsistentException(string backupDirectory, string message) :
+        public BackupMetadataInconsistentException(string backupPath, string message) :
             base(message, null) {
-            BackupDirectory = backupDirectory;
+            BackupPath = backupPath;
         }
 
         /// <summary>
         /// The path of the backup directory whose metadata is inconsistent.
         /// </summary>
-        public readonly string BackupDirectory;
+        public readonly string BackupPath;
     }
 }

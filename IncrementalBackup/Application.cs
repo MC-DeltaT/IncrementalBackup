@@ -36,14 +36,13 @@ namespace IncrementalBackup
             try {
                 BackupConfig config = ParseCmdArgs(cmdArgs);
                 LogConfig(config);
-                var index = ReadBackupIndex(config.TargetDirectory);
-                var previousBackups = ReadPreviousBackups(config.SourceDirectory, config.TargetDirectory, index);
-                var (backupName, manifestWriter) = InitialiseBackup(config.SourceDirectory, config.TargetDirectory);
+                var index = ReadBackupIndex(config.TargetPath);
+                var previousBackups = ReadPreviousBackups(config.SourcePath, config.TargetPath, index);
+                var (backupName, manifestWriter) = InitialiseBackup(config.SourcePath, config.TargetPath);
                 var results = DoBackup(config, previousBackups, backupName, manifestWriter);
-                var metadataWritten = CompleteBackup(config.SourceDirectory, config.TargetDirectory, backupName,
-                    results);
+                var metadataWritten = CompleteBackup(config.SourcePath, config.TargetPath, backupName, results);
 
-                if (!results.PathsSkipped && metadataWritten) {
+                if (!results.PathsSkipped && results.ManifestComplete && metadataWritten) {
                     return ProcessExitCode.Success;
                 }
                 else {
@@ -66,8 +65,7 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Parses and validates the application's command line arguments. <br/>
-        /// If any of the arguments are invalid, writes error info to <see cref="Logger"/>.
+        /// Parses and validates the application's command line arguments.
         /// </summary>
         /// <remarks>
         /// Note that the filesystem paths in the returned <see cref="BackupConfig"/> are not guaranteed to be valid,
@@ -77,33 +75,41 @@ namespace IncrementalBackup
         /// <param name="args">The command line arguments.</param>
         /// <returns>The <see cref="BackupConfig"/> parsed from the arguments.</returns>
         /// <exception cref="InvalidCmdArgsError">If the command line arguments are invalid.</exception>
+        /// <exception cref="ApplicationRuntimeError">If the config paths can't be resolved.</exception>
         private BackupConfig ParseCmdArgs(string[] args) {
             if (args.Length < 2) {
                 throw new InvalidCmdArgsError();
             }
 
-            var sourceDirectory = args[0];
-            var targetDirectory = args[1];
+            var sourcePath = args[0];
+            var targetPath = args[1];
             var excludePaths = args.Skip(2);
 
-            var validArgs = true;
-
             try {
-                sourceDirectory = FilesystemException.ConvertSystemException(() => Path.GetFullPath(sourceDirectory),
-                    () => sourceDirectory);
+                sourcePath = FilesystemException.ConvertSystemException(() => Path.GetFullPath(sourcePath),
+                    () => sourcePath);
             }
             catch (FilesystemException e) {
-                Logger.Error($"Failed to resolve source directory: {e.Reason}");
-                validArgs = false;
+                throw new ApplicationRuntimeError($"Failed to resolve source directory: {e.Reason}");
+            }
+
+            if (File.Exists(sourcePath)) {
+                throw new ApplicationRuntimeError("Source directory is not a directory");
+            }
+            if (!Directory.Exists(sourcePath)) {
+                throw new ApplicationRuntimeError("Source directory not found");
             }
 
             try {
-                targetDirectory = FilesystemException.ConvertSystemException(() => Path.GetFullPath(targetDirectory),
-                    () => targetDirectory);
+                targetPath = FilesystemException.ConvertSystemException(() => Path.GetFullPath(targetPath),
+                    () => targetPath);
             }
             catch (FilesystemException e) {
-                Logger.Error($"Failed to resolve target directory: {e.Reason}");
-                validArgs = false;
+                throw new ApplicationRuntimeError($"Failed to resolve target directory: {e.Reason}");
+            }
+
+            if (File.Exists(targetPath)) {
+                throw new ApplicationRuntimeError("Target directory exists and is not a directory.");
             }
 
             List<string> parsedExcludePaths = new();
@@ -111,7 +117,7 @@ namespace IncrementalBackup
                 string fullPath;
                 try {
                     fullPath = FilesystemException.ConvertSystemException(
-                        () => Path.GetFullPath(path, sourceDirectory), () => path);
+                        () => Path.GetFullPath(path, sourcePath), () => path);
                 }
                 catch (FilesystemException e) {
                     Logger.Warning($"Failed to resolve exclude path \"{path}\" ({e.Reason}); discarding.");
@@ -120,12 +126,7 @@ namespace IncrementalBackup
                 parsedExcludePaths.Add(fullPath);
             }
 
-            if (validArgs) {
-                return new(sourceDirectory, targetDirectory, parsedExcludePaths);
-            }
-            else {
-                throw new InvalidCmdArgsError();
-            }
+            return new(sourcePath, targetPath, parsedExcludePaths);
         }
 
         /// <summary>
@@ -133,28 +134,29 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="config">The backup config to output.</param>
         private void LogConfig(BackupConfig config) {
-            Logger.Info($"Source directory: {config.SourceDirectory}");
-            Logger.Info($"Target directory: {config.TargetDirectory}");
+            Logger.Info($"Source directory: {config.SourcePath}");
+            Logger.Info($"Target directory: {config.TargetPath}");
             Logger.Info("Exclude paths:\n"
-                + string.Join('\n', config.ExcludePaths.Select(path => $"\t{path}").DefaultIfEmpty("\t<none>")));
+                + string.Join('\n', config.ExcludePaths.Select(path => $"  {path}").DefaultIfEmpty("\t<none>")));
         }
 
         /// <summary>
-        /// Reads the backup index from a target directory. <br/>
-        /// If no backup index exists, writes a message to <see cref="Logger"/>.
+        /// Reads the backup index from a target directory.
         /// </summary>
-        /// <param name="targetDirectory">The target directory to read from.</param>
+        /// <param name="targetPath">The target directory to read from.</param>
         /// <returns>The read backup index, or <c>null</c> if the index file does not exist.</returns>
-        /// <exception cref="ApplicationError">If the index file exists, but could not be read/parsed.
+        /// <exception cref="ApplicationRuntimeError">If the index file exists, but could not be read/parsed.
         /// </exception>
         /// <seealso cref="BackupMeta.ReadIndexFile(string)"/>
-        private BackupIndex? ReadBackupIndex(string targetDirectory) {
-            var indexFilePath = BackupMeta.IndexFilePath(targetDirectory);
+        private BackupIndex? ReadBackupIndex(string targetPath) {
+            var indexFilePath = BackupMeta.IndexFilePath(targetPath);
             try {
-                return BackupIndexReader.Read(indexFilePath);
+                var index = BackupIndexReader.Read(indexFilePath);
+                Logger.Info($"Read backup index \"{indexFilePath}\"");
+                return index;
             }
             catch (BackupIndexFileIOException e) when (e.InnerException is PathNotFoundException) {
-                Logger.Info("No existing backup index found.");
+                Logger.Info("No existing backup index found");
                 return null;
             }
             catch (BackupIndexFileException e) {
@@ -163,21 +165,19 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Reads the existing backup manifests matching the given source directory. <br/>
-        /// Outputs the number of manifests matched to <see cref="Logger"/>.
+        /// Reads the existing backup manifests matching the given source directory.
         /// </summary>
         /// <remarks>
-        /// Manifests are matched by comparing their source directories to <paramref name="sourceDirectory"/>. <br/>
+        /// Manifests are matched by comparing their source directories to <paramref name="sourcePath"/>. <br/>
         /// The comparison ignores case, so this only works on Windows. <br/>
         /// The comparison only considers the literal path, e.g. symbolic links are not resolved.
         /// </remarks>
-        /// <param name="sourceDirectory">The source directory to match.</param>
-        /// <param name="targetDirectory">The target directory which is being examined.</param>
-        /// <param name="index">The backup index detailing all the existing backups in
-        /// <paramref name="targetDirectory"/>. If <c>null</c>, no manifests are matched.</param>
+        /// <param name="sourcePath">The source directory to match.</param>
+        /// <param name="targetPath">The target directory which is being examined.</param>
+        /// <param name="index">The backup index detailing all the existing backups in <paramref name="targetPath"/>.
+        /// If <c>null</c>, no manifests are matched.</param>
         /// <returns>A list of the matched backup manifests, in unspecified order.</returns>
-        private List<PreviousBackup> ReadPreviousBackups(string sourceDirectory, string targetDirectory,
-                BackupIndex? index) {
+        private List<PreviousBackup> ReadPreviousBackups(string sourcePath, string targetPath, BackupIndex? index) {
             if (index is null) {
                 return new();
             }
@@ -185,11 +185,11 @@ namespace IncrementalBackup
             List<PreviousBackup> previousBackups = new();
             foreach (var pair in index.Backups) {
                 var backupName = pair.Key;
-                var backupSourceDirectory = pair.Value;
+                var backupSourcePath = pair.Value;
 
                 // Paths are assumed to be already normalised.
-                if (string.Compare(sourceDirectory, backupSourceDirectory, true) == 0) {
-                    var backupPath = Path.Join(targetDirectory, backupName);
+                if (string.Compare(sourcePath, backupSourcePath, true) == 0) {
+                    var backupPath = Path.Join(targetPath, backupName);
 
                     var startInfoFilePath = BackupMeta.StartInfoFilePath(backupPath);
                     BackupStartInfo startInfo;
@@ -197,15 +197,15 @@ namespace IncrementalBackup
                         startInfo = BackupStartInfoReader.Read(startInfoFilePath);
                     }
                     catch (BackupStartInfoFileException e) {
-                        Logger.Warning($"Failed to read metadata of previous backup \"{backupPath}\": {e.Message}");
+                        Logger.Warning($"Failed to read metadata of previous backup \"{backupName}\": {e.Message}");
                         continue;
                     }
 
                     // We could just assume the index file and start info file are consistent, but it might be a
                     // good idea to check just in case something goes particularly wrong.
-                    if (string.Compare(sourceDirectory, startInfo.SourceDirectory, true) != 0) {
+                    if (string.Compare(sourcePath, startInfo.SourcePath, true) != 0) {
                         Logger.Warning(
-                            $"Source directory of backup start info in \"{backupPath}\" doesn't match backup index.");
+                            $"Source directory of backup start info in previous backup \"{backupName}\" doesn't match backup index");
                         continue;
                     }
 
@@ -215,27 +215,37 @@ namespace IncrementalBackup
                         manifest = BackupManifestReader.Read(manifestFilePath);
                     }
                     catch (BackupManifestFileException e) {
-                        Logger.Warning($"Failed to read metadata of previous backup \"{backupPath}\": {e.Message}");
+                        Logger.Warning($"Failed to read metadata of previous backup \"{backupName}\": {e.Message}");
                         continue;
                     }
+
                     previousBackups.Add(new(startInfo.StartTime, manifest));
                 }
             }
 
-            Logger.Info($"{previousBackups.Count} previous backups found for this source directory.");
+            Logger.Info($"{previousBackups.Count} previous backups found in target directory for source directory");
             return previousBackups;
         }
 
-        public (string, BackupManifestWriter) InitialiseBackup(string sourceDirectory, string targetDirectory) {
+        /// <summary>
+        /// Creates the backup directory, the log file, the start info file, and the manifest writer.
+        /// </summary>
+        /// <param name="sourcePath">The path of the backup source directory.</param>
+        /// <param name="targetPath">The path of the backup target directory.</param>
+        /// <returns>A tuple of the backup directory name and manifest writer.</returns>
+        /// <exception cref="ApplicationRuntimeError">If the backup directory, start info file, or manifest writer
+        /// can't be created.</exception>
+        public (string, BackupManifestWriter) InitialiseBackup(string sourcePath, string targetPath) {
             string backupName;
             try {
-                backupName = BackupMeta.CreateBackupDirectory(targetDirectory);
+                backupName = BackupMeta.CreateBackupDirectory(targetPath);
             }
             catch (BackupDirectoryCreateException) {
                 throw new ApplicationRuntimeError("Failed to create new backup directory");
             }
-
-            var backupPath = BackupMeta.BackupPath(targetDirectory, backupName);
+            Logger.Info($"Backup name: {backupName}");
+            var backupPath = BackupMeta.BackupPath(targetPath, backupName);
+            Logger.Info($"Created backup directory \"{backupPath}\"");
 
             var logFilePath = BackupMeta.LogFilePath(backupPath);
             try {
@@ -247,63 +257,86 @@ namespace IncrementalBackup
                 Logger.Warning(e.Message);
             }
 
+            var manifestFilePath = BackupMeta.ManifestFilePath(backupPath);
             BackupManifestWriter manifestWriter;
             try {
-                manifestWriter = new(BackupMeta.ManifestFilePath(backupPath));
+                manifestWriter = new(manifestFilePath);
             }
             catch (BackupManifestFileIOException e) {
                 throw new ApplicationRuntimeError(
-                    $"Failed to create backup manifest file: {e.InnerException.Reason}");
+                    $"Failed to create backup manifest file \"{manifestFilePath}\": {e.InnerException.Reason}");
             }
+            Logger.Info($"Created backup manifest file \"{manifestFilePath}\"");
 
-            BackupStartInfo startInfo = new(sourceDirectory, DateTime.UtcNow);
+            BackupStartInfo startInfo = new(sourcePath, DateTime.UtcNow);
             var startInfoFilePath = BackupMeta.StartInfoFilePath(backupPath);
             try {
                 BackupStartInfoWriter.Write(startInfoFilePath, startInfo);
             }
             catch (BackupStartInfoFileIOException e) {
-                throw new ApplicationRuntimeError($"Failed to write backup start info: {e.InnerException.Reason}");
+                throw new ApplicationRuntimeError(
+                    $"Failed to write backup start info file \"{startInfoFilePath}\": {e.InnerException.Reason}");
             }
+            Logger.Info($"Created backup start info file \"{startInfoFilePath}\"");
 
             return (backupName, manifestWriter);
         }
 
         /// <summary>
-        /// Runs the backup. Creates the new backup directory and copies files over.
+        /// Runs the backup.
         /// </summary>
         /// <param name="config">The configuration of this backup.</param>
         /// <param name="previousBackups">The existing backup data for this source directory.</param>
         /// <param name="backupName">The name of the new backup directory.</param>
         /// <param name="manifestWriter">Writes the backup manifest. Must be in a newly-constructed state.</param>
         /// <returns>Results of the backup.</returns>
+        /// <exception cref="ApplicationRuntimeError">If the backup fails.</exception>
         /// <seealso cref="Backup.Run(string, IReadOnlyList{string}, IReadOnlyList{PreviousBackup}, string, BackupManifestWriter, Logger)"/>
         private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups,
-                string backupName, BackupManifestWriter manifestWriter) =>
-            Backup.Run(config.SourceDirectory, config.ExcludePaths, previousBackups,
-                BackupMeta.BackupPath(config.TargetDirectory, backupName), manifestWriter, Logger);
+                string backupName, BackupManifestWriter manifestWriter) {
+            var backupPath = BackupMeta.BackupPath(config.TargetPath, backupName);
+            Logger.Info("Copying files");
+            try {
+                return Backup.Run(config.SourcePath, config.ExcludePaths, previousBackups, backupPath, manifestWriter,
+                    Logger);
+            }
+            catch (BackupException e) {
+                throw new ApplicationRuntimeError(e.Message);
+            }
+        }
 
-        public bool CompleteBackup(string sourceDirectory, string targetDirectory, string backupName,
-                BackupResults results) {
-            var backupPath = BackupMeta.BackupPath(targetDirectory, backupName);
+        /// <summary>
+        /// Generates the backup completion info file and adds the backup to the backup index.
+        /// </summary>
+        /// <param name="sourcePath">The path of the backup source directory.</param>
+        /// <param name="targetPath">The path of the backup target directory.</param>
+        /// <param name="backupName">The name of the backup directory.</param>
+        /// <param name="results">The results of the backup.</param>
+        /// <returns><c>true</c> if all the operations completed successfully, otherwise <c>false</c>.</returns>
+        public bool CompleteBackup(string sourcePath, string targetPath, string backupName, BackupResults results) {
+            var backupPath = BackupMeta.BackupPath(targetPath, backupName);
 
             bool success = true;
 
-            BackupCompleteInfo completionInfo = new(DateTime.UtcNow, results.PathsSkipped);
+            BackupCompleteInfo completionInfo = new(DateTime.UtcNow, results.PathsSkipped, results.ManifestComplete);
             var completionInfoFilePath = BackupMeta.CompleteInfoFilePath(backupPath);
             try {
                 BackupCompleteInfoWriter.Write(completionInfoFilePath, completionInfo);
+                Logger.Info($"Created backup completion info file \"{completionInfoFilePath}\"");
             }
             catch (BackupCompleteInfoFileIOException e) {
-                Logger.Warning($"Failed to write backup completion info: {e.InnerException.Reason}");
+                Logger.Warning(
+                    $"Failed to write backup completion info \"{completionInfoFilePath}\": {e.InnerException.Reason}");
                 success = false;
             }
 
-            var indexFilePath = BackupMeta.IndexFilePath(targetDirectory);
+            var indexFilePath = BackupMeta.IndexFilePath(targetPath);
             try {
-                BackupIndexWriter.AddEntry(indexFilePath, backupPath, sourceDirectory);
+                BackupIndexWriter.AddEntry(indexFilePath, backupName, sourcePath);
+                Logger.Info($"Added this backup to backup index");
             }
             catch (BackupIndexFileIOException e) {
-                Logger.Warning($"Failed to add backup to backup index: {e.InnerException.Reason}");
+                Logger.Warning($"Failed to add backup to backup index \"{indexFilePath}\": {e.InnerException.Reason}");
                 success = false;
             }
 
@@ -314,13 +347,15 @@ namespace IncrementalBackup
     /// <summary>
     /// Configuration of a backup run.
     /// </summary>
-    /// <param name="SourceDirectory">The directory to be backed up. Should be fully qualified and normalised.</param>
-    /// <param name="TargetDirectory">The directory to back up to. Should be fully qualified and normalised.</param>
+    /// <param name="SourcePath">The path of the directory to be backed up. Should be fully qualified and normalised.
+    /// </param>
+    /// <param name="TargetPath">The path of the directory to back up to. Should be fully qualified and normalised.
+    /// </param>
     /// <param name="ExcludePaths">A list of files and folders that are excluded from being backed up.
     /// Each path should be fully qualified and normalised.</param>
     record BackupConfig(
-        string SourceDirectory,
-        string TargetDirectory,
+        string SourcePath,
+        string TargetPath,
         IReadOnlyList<string> ExcludePaths
     );
 

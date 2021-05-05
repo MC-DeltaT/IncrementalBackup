@@ -8,11 +8,11 @@ namespace IncrementalBackup
     /// <summary>
     /// Information written to the backup directory at the start of a backup.
     /// </summary>
-    /// <param name="SourceDirectory">The path of the directory that was backed up. Should be normalised.</param>
+    /// <param name="SourcePath">The path of the directory that was backed up. Should be normalised.</param>
     /// <param name="StartTime">The UTC time at which the backup was initiated (just before any files were copied).
     /// </param>
     record BackupStartInfo(
-        string SourceDirectory,
+        string SourcePath,
         DateTime StartTime
     );
 

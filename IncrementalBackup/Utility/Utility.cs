@@ -1,5 +1,7 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
+using System.Text;
 
 
 namespace IncrementalBackup
@@ -37,6 +39,60 @@ namespace IncrementalBackup
         /// <returns><paramref name="path"/> with trailing directory separators removed.</returns>
         public static string RemoveTrailingDirSep(string path) =>
             path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        /// <summary>
+        /// Checks if a string contains any newline characters (<c>'\n'</c> or <c>'\r'</c>).
+        /// </summary>
+        /// <returns><c>true</c> if the string contains newline characters, otherwise <c>false</c>.</returns>
+        public static bool ContainsNewlines(string str) =>
+            str.Any(c => c is '\n' or '\r');
+
+        /// <summary>
+        /// Encodes newlines in a string such that it becomes a single line. <br/>
+        /// The result may be decoded with <see cref="NewlineDecode(string)"/>.
+        /// </summary>
+        /// <param name="str">The string to encode.</param>
+        /// <returns>The encoded string.</returns>
+        public static string NewlineEncode(string str) =>
+            str.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\r", @"\r");
+
+        /// <summary>
+        /// Reverses the encoding performed by <see cref="NewlineEncode(string)"/>.
+        /// </summary>
+        /// <param name="encodedStr">The encoded string; the result of <see cref="NewlineEncode(string)"/>.</param>
+        /// <returns>The original, decoded string.</returns>
+        public static string NewlineDecode(string encodedStr) {
+            StringBuilder result = new(encodedStr.Length);
+            for (int i = 0; i < encodedStr.Length; ) {
+                var cur = encodedStr[i];
+                if (cur == '\\' && i + 1 < encodedStr.Length) {
+                    var next = encodedStr[i + 1];
+                    switch (next) {
+                        case '\\':
+                            result.Append('\\');
+                            i += 2;
+                            break;
+                        case 'n':
+                            result.Append('\n');
+                            i += 2;
+                            break;
+                        case 'r':
+                            result.Append('\r');
+                            i += 2;
+                            break;
+                        default:
+                            result.Append(cur);
+                            i++;
+                            break;
+                    }
+                }
+                else {
+                    result.Append(cur);
+                    i++;
+                }
+            }
+            return result.ToString();
+        }
     }
 
     /// <summary>
@@ -91,21 +147,5 @@ namespace IncrementalBackup
         /// Indicates if resources have already been disposed of via <see cref="Dispose(bool)"/>.
         /// </summary>
         private bool Disposed = false;
-    }
-
-    static class StringExtensions
-    {
-        /// <summary>
-        /// Checks if this string contains any newline characters (\n or \r).
-        /// </summary>
-        /// <returns><c>true</c> if the string contains newline characters, otherwise <c>false</c>.</returns>
-        public static bool ContainsNewlines(this string str) {
-            for (int i = 0; i < str.Length; i++) {
-                if (str[i] is '\n' or '\r') {
-                    return true;
-                }
-            }
-            return false;
-        }
     }
 }

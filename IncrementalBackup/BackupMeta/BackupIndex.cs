@@ -60,7 +60,7 @@ namespace IncrementalBackup
 
                 // Note that empty values are valid, even though that shouldn't happen in practice.
                 var backupDirectory = parts[0];
-                var backupSourcePath = DecodePath(parts[1]);
+                var backupSourcePath = Utility.NewlineDecode(parts[1]);
 
                 index.Backups[backupDirectory] = backupSourcePath;
             }
@@ -83,14 +83,6 @@ namespace IncrementalBackup
                 throw new BackupIndexFileIOException(filePath, e);
             }
         }
-
-        /// <summary>
-        /// Inverts <see cref="BackupIndexWriter.EncodePath(string)"/>.
-        /// </summary>
-        /// <param name="encodedPath">The encoded path.</param>
-        /// <returns>The decoded path.</returns>
-        private static string DecodePath(string encodedPath) =>
-            encodedPath.Replace(@"\r", "\r").Replace(@"\n", "\n").Replace(@"\\", @"\");
     }
 
     class BackupIndexWriter
@@ -100,25 +92,23 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="indexFilePath">The path of the index file to write to. May be a nonexistent file, in which
         /// case it will be created.</param>
-        /// <param name="backupDirectory">The name of the backup directory. Must not contain
+        /// <param name="backupName">The name of the backup directory. Must not contain
         /// <see cref="BackupIndexFileConstants.SEPARATOR"/> or newline characters.</param>
-        /// <param name="backupSourcePath">The source directory path for the backup.</param>
-        /// <exception cref="ArgumentException">If <paramref name="backupDirectory"/> contains invalid characters.
+        /// <param name="backupSourcePath">The path of the source directory for the backup.</param>
+        /// <exception cref="ArgumentException">If <paramref name="backupName"/> contains invalid characters.
         /// </exception>
         /// <exception cref="BackupIndexFileIOException">Failed to write to the index file due to filesystem-related
         /// errors.</exception>
-        public static void AddEntry(string indexFilePath, string backupDirectory, string backupSourcePath) {
-            if (backupDirectory.Contains(BackupIndexFileConstants.SEPARATOR)) {
+        public static void AddEntry(string indexFilePath, string backupName, string backupSourcePath) {
+            if (backupName.Contains(BackupIndexFileConstants.SEPARATOR)) {
                 throw new ArgumentException(
-                    $"{nameof(backupDirectory)} must not contain {BackupIndexFileConstants.SEPARATOR}",
-                    nameof(backupDirectory));
+                    $"{nameof(backupName)} must not contain {BackupIndexFileConstants.SEPARATOR}", nameof(backupName));
             }
-            if (backupDirectory.ContainsNewlines()) {
-                throw new ArgumentException($"{nameof(backupDirectory)} must not contain newlines.",
-                    nameof(backupDirectory));
+            if (Utility.ContainsNewlines(backupName)) {
+                throw new ArgumentException($"{nameof(backupName)} must not contain newlines.", nameof(backupName));
             }
 
-            var entry = $"{backupDirectory}{BackupIndexFileConstants.SEPARATOR}{EncodePath(backupSourcePath)}";
+            var entry = $"{backupName}{BackupIndexFileConstants.SEPARATOR}{Utility.NewlineEncode(backupSourcePath)}\n";
             try {
                 FilesystemException.ConvertSystemException(
                     () => File.AppendAllText(indexFilePath, entry, new UTF8Encoding(false, true)),
@@ -128,15 +118,6 @@ namespace IncrementalBackup
                 throw new BackupIndexFileIOException(indexFilePath, e);
             }
         }
-
-        /// <summary>
-        /// Encodes a path for use in a backup index. <br/>
-        /// Specifically, escapes newline characters so each entry in the index can always be 1 line.
-        /// </summary>
-        /// <param name="path">The path to encode.</param>
-        /// <returns>The encoded path.</returns>
-        private static string EncodePath(string path) =>
-            path.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\r", @"\r");
     }
 
     static class BackupIndexFileConstants
