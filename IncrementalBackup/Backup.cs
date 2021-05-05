@@ -154,7 +154,7 @@ namespace IncrementalBackup
                                 PathsSkipped = true;
                             }
                             if (subdirectories is not null) {
-                                searchStack.AddRange(subdirectories);
+                                searchStack.AddRange(subdirectories.Reverse());
                             }
                         }
                     }

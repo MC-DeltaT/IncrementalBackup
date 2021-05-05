@@ -61,7 +61,8 @@ namespace IncrementalBackup
         /// <param name="value">The backup start info to write.</param>
         /// <exception cref="BackupStartInfoFileIOException">If the file could not be written to.</exception>
         public static void Write(string filePath, BackupStartInfo value) {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
+            JsonSerializerOptions jsonOptions = new() { WriteIndented = true };     // Pretty print for human reading.
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(value, jsonOptions);
             try {
                 FilesystemException.ConvertSystemException(() => File.WriteAllBytes(filePath, bytes), () => filePath);
             }

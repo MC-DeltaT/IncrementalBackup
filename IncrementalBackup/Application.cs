@@ -137,7 +137,7 @@ namespace IncrementalBackup
             Logger.Info($"Source directory: {config.SourcePath}");
             Logger.Info($"Target directory: {config.TargetPath}");
             Logger.Info("Exclude paths:\n"
-                + string.Join('\n', config.ExcludePaths.Select(path => $"  {path}").DefaultIfEmpty("\t<none>")));
+                + string.Join('\n', config.ExcludePaths.Select(path => $"  {path}").DefaultIfEmpty("  <none>")));
         }
 
         /// <summary>
@@ -223,7 +223,8 @@ namespace IncrementalBackup
                 }
             }
 
-            Logger.Info($"{previousBackups.Count} previous backups found in target directory for source directory");
+            Logger.Info(
+                $"{previousBackups.Count} previous backups found in target directory for this source directory");
             return previousBackups;
         }
 
