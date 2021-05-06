@@ -35,9 +35,14 @@ Building
 Usage
     IncrementalBackup.exe <source_dir> <target_dir> [<exclude_path1> <exclude_path2> ...]
     
-    source_dir - The path of the directory to be backed up.
-    target_dir - The path of the directory to back up to.
-    exclude_path - 0 or more paths which will never be backed up. If relative paths, they are relative to target_dir.
+    <source_dir> - The path of the directory to be backed up. May be at least any locally mapped drive (I'm not sure
+    how other path types like UNC would work, I haven't tested). If relative, it's taken to be relative to the current
+    directory.
+    
+    <target_dir> - The path of the directory to back up to. Same conditions as <source_dir> apply. It's highly
+    recommended that <target_dir> is not contained within <source_dir> (except if you explicitly exclude <target_dir>).
+    
+    <exclude_path> - 0 or more paths which will never be backed up. If relative paths, they are relative to source_dir.
 
 
 How It Works
