@@ -9,14 +9,24 @@ namespace IncrementalBackup
     /// <summary>
     /// Results of a backup run.
     /// </summary>
-    /// <param name="PathsSkipped">Indicates whether any paths were skipped due to I/O errors, permission errors, etc.
-    /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
-    /// <param name="ManifestComplete">Indicates whether all files and directories backed up were recorded in the
-    /// backup manifest file.</param>
-    record BackupResults(
-        bool PathsSkipped,
-        bool ManifestComplete
-    );
+    class BackupResults
+    {
+        public BackupResults(bool pathsSkipped, bool manifestComplete) {
+            PathsSkipped = pathsSkipped;
+            ManifestComplete = manifestComplete;
+        }
+
+        /// <summary>
+        /// Indicates whether any paths were skipped due to I/O errors, permission errors, etc. (NOT inclusive of paths
+        /// that were specifically requested to be excluded).
+        /// </summary>
+        public bool PathsSkipped;
+
+        /// <summary>
+        /// Indicates whether all files and directories backed up were recorded in the backup manifest file.
+        /// </summary>
+        public bool ManifestComplete;
+    }
 
     class Backup
     {
@@ -37,16 +47,6 @@ namespace IncrementalBackup
                 Logger logger) =>
             new Backup(sourcePath, excludePaths, previousBackups, backupPath, manifestWriter, logger).Run();
 
-        private readonly string SourcePath;
-        private readonly IReadOnlyList<string> ExcludePaths;
-        private readonly IReadOnlyList<PreviousBackup> PreviousBackups;
-        private readonly string BackupPath;
-        private readonly string BackupDataPath;
-        private readonly BackupManifestWriter ManifestWriter;
-        private readonly Logger Logger;
-        private bool PathsSkipped;
-        private bool ManifestComplete;
-
         private Backup(string sourcePath, IReadOnlyList<string> excludePaths,
                 IReadOnlyList<PreviousBackup> previousBackups, string backupPath, BackupManifestWriter manifestWriter,
                 Logger logger) {
@@ -57,12 +57,23 @@ namespace IncrementalBackup
             ExcludePaths = excludePaths;
             PreviousBackups = previousBackupsSorted;
             BackupPath = backupPath;
-            BackupDataPath = BackupMeta.BackupDataPath(BackupPath);
+            BackupDataPath = BackupMeta.BackupDataPath(backupPath);
             ManifestWriter = manifestWriter;
             Logger = logger;
-            PathsSkipped = false;
-            ManifestComplete = true;
+            Results = new(false, true);
         }
+
+        // Configuration data.
+        private readonly string SourcePath;
+        private readonly IReadOnlyList<string> ExcludePaths;
+        private readonly IReadOnlyList<PreviousBackup> PreviousBackups;
+        private readonly string BackupPath;
+        private readonly string BackupDataPath;
+
+        // Mutable state.
+        private readonly BackupManifestWriter ManifestWriter;
+        private readonly Logger Logger;
+        private readonly BackupResults Results;
 
         /// <summary>
         /// Performs the back up. <br/>
@@ -71,105 +82,118 @@ namespace IncrementalBackup
         /// <returns>The results of the backup.</returns>
         /// <exception cref="BackupException">If the source directory can't be accessed.</exception>
         private BackupResults Run() {
-            // Explore directories in a depth-first manner, on the basis that files/folders within the same branch of
-            // the filesystem are likely to be modified together, so we want to back them up as close together in time
-            // as possible. It's also probably more useful to have some folders fully backed up rather than all folders
-            // partially backed up (if using breadth-first), in the case the backup is stopped early.
+            // Explore directories in a depth-first manner, on the basis that files/directories within the same branch
+            // of the filesystem are likely to be modified together, so we want to back them up as close together in
+            // time as possible. It's also probably more useful to have some directories fully backed up rather than
+            // all directories partially backed up (if using breadth-first), in the case the backup is stopped early.
 
-            List<DirectoryInfo?> searchStack = new();
-            List<string> relativePathComponents = new();
+            SearchState searchState = new(true, new(), new());
 
             try {
                 var root = FilesystemException.ConvertSystemException(() => new DirectoryInfo(SourcePath),
                     () => SourcePath);
-                searchStack.Add(root);
+                searchState.NodeStack.Add(state => VisitDirectory(state, root));
             }
             catch (FilesystemException e) {
                 throw new BackupException($"Failed to enumerate source directory \"{SourcePath}\": {e.Reason}", e);
             }
 
-            bool isRoot = true;
             do {
-                var currentDirectory = searchStack[^1];
-                searchStack.RemoveAt(searchStack.Count - 1);
-
-                if (currentDirectory is null) {
-                    try {
-                        ManifestWriter.PopDirectory();
-                    }
-                    catch (BackupManifestFileIOException e) {
-                        Logger.Warning(
-                            $"Failed to write to backup manifest file \"{ManifestWriter.FilePath}\" ({e.InnerException.Reason}); stopping backup");
-                        PathsSkipped = true;
-                        break;
-                    }
-
-                    relativePathComponents.RemoveAt(relativePathComponents.Count - 1);
+                var currentNode = searchState.NodeStack[^1];
+                searchState.NodeStack.RemoveAt(searchState.NodeStack.Count - 1);
+                if (!currentNode(searchState)) {
+                    break;
                 }
-                else {
-                    // Unfortunately we have these inelegant checks for the backup source directory, because that's
-                    // a bit of a special case. I don't think it can be avoided.
-                    if (!isRoot) {
-                        relativePathComponents.Add(currentDirectory.Name);
-                    }
+                searchState.IsRootNode = false;
+            } while (searchState.NodeStack.Count > 0);
 
-                    string relativePath = string.Join(Path.DirectorySeparatorChar, relativePathComponents);
-                    Lazy<string> fullPath = new(() => Path.Join(SourcePath, relativePath), false);
-
-                    // Probably a good idea to get the full path from the system rather than form it ourselves, to make
-                    // sure it's normalised correctly.
-                    string? fullPathNormalised = null;
-                    try {
-                        fullPathNormalised = FilesystemException.ConvertSystemException(
-                            () => currentDirectory.FullName, () => fullPath.Value);
-                    }
-                    catch (FilesystemException e) {
-                        Logger.Warning(
-                            $"Failed to read metadata of directory \"{fullPath.Value}\" ({e.Reason}); skipping");
-                        PathsSkipped = true;
-                    }
-
-                    if (fullPathNormalised is not null) {
-                        if (IsPathExcluded(fullPathNormalised)) {
-                            Logger.Info($"Skipped excluded directory \"{fullPathNormalised}\"");
-                        }
-                        else {
-                            bool directoryRecorded = BackUpDirectory(currentDirectory, relativePath,
-                                relativePathComponents, isRoot, fullPathNormalised);
-
-                            if (!isRoot && directoryRecorded) {
-                                // null marks backtracking to the parent directory.
-                                searchStack.Add(null);
-                            }
-
-                            DirectoryInfo[]? subdirectories = null;
-                            try {
-                                subdirectories = FilesystemException.ConvertSystemException(
-                                    currentDirectory.GetDirectories,
-                                    () => fullPathNormalised);
-                            }
-                            catch (FilesystemException e) {
-                                Logger.Warning(
-                                    $"Failed to enumerate subdirectories of \"{fullPathNormalised}\" ({e.Reason}); skipping");
-                                PathsSkipped = true;
-                            }
-                            if (subdirectories is not null) {
-                                searchStack.AddRange(subdirectories.Reverse());
-                            }
-                        }
-                    }
-                }
-
-                isRoot = false;
-            } while (searchStack.Count > 0);
-
-            // The search is kinda tricky and too ages to figure out - I don't trust that it fully works.
-            if (ManifestWriter.PathDepth != relativePathComponents.Count) {
+            // The search is kinda tricky and took ages to figure out - I don't trust that it fully works.
+            if (ManifestWriter.PathDepth != searchState.RelativePathComponents.Count) {
                 throw new LogicException(
-                    $"Manifest writer path depth should be {relativePathComponents.Count} after backup, but is {ManifestWriter.PathDepth}");
+                    $"Manifest writer path depth should be {searchState.RelativePathComponents.Count} after backup, but is {ManifestWriter.PathDepth}");
             }
 
-            return new(PathsSkipped, ManifestComplete);
+            return Results;
+        }
+
+        private bool VisitDirectory(SearchState state, DirectoryInfo directory) {
+            // Unfortunately we have these inelegant checks for the backup source directory, because that's
+            // a bit of a special case. I don't think it can be avoided.
+            if (!state.IsRootNode) {
+                state.RelativePathComponents.Add(directory.Name);
+            }
+
+            string relativePath = string.Join(Path.DirectorySeparatorChar, state.RelativePathComponents);
+            Lazy<string> fullPath = new(() => Path.Join(SourcePath, relativePath), false);
+
+            // Probably a good idea to get the full path from the system rather than form it ourselves, to make
+            // sure it's normalised correctly.
+            string? fullPathNormalised = null;
+            try {
+                fullPathNormalised = FilesystemException.ConvertSystemException(
+                    () => directory.FullName, () => fullPath.Value);
+            }
+            catch (FilesystemException e) {
+                Logger.Warning(
+                    $"Failed to read metadata of directory \"{fullPath.Value}\" ({e.Reason}); skipping");
+                Results.PathsSkipped = true;
+            }
+
+            bool directoryRecorded = false;
+            DirectoryInfo[]? subdirectories = null;
+
+            if (fullPathNormalised is not null) {
+                if (IsPathExcluded(fullPathNormalised)) {
+                    Logger.Info($"Skipping excluded directory \"{fullPathNormalised}\"");
+                }
+                else {
+                    directoryRecorded = BackUpDirectory(directory, relativePath,
+                        state.RelativePathComponents, state.IsRootNode, fullPathNormalised);
+
+                    if (directoryRecorded) {
+                        try {
+                            subdirectories = FilesystemException.ConvertSystemException(
+                                directory.GetDirectories, () => fullPathNormalised);
+                        }
+                        catch (FilesystemException e) {
+                            Logger.Warning(
+                                $"Failed to enumerate subdirectories of \"{fullPathNormalised}\" ({e.Reason}); skipping");
+                            Results.PathsSkipped = true;
+                        }
+                    }
+                }
+            }
+
+            if (!state.IsRootNode) {
+                state.NodeStack.Add(state => Backtrack(state, directoryRecorded));
+            }
+
+            if (subdirectories is not null) {
+                state.NodeStack.AddRange(subdirectories.Reverse()
+                    .Select<DirectoryInfo, Func<SearchState, bool>>(d => state => VisitDirectory(state, d)));
+            }
+
+            return true;
+        }
+
+        private bool Backtrack(SearchState state, bool popManifest) {
+            // Only pop a directory from the manifest if the directory was pushed, which may not happen every time
+            // (e.g. if the directory was skipped).
+            if (popManifest) {
+                try {
+                    ManifestWriter.PopDirectory();
+                }
+                catch (BackupManifestFileIOException e) {
+                    Logger.Warning(
+                        $"Failed to write to backup manifest file \"{ManifestWriter.FilePath}\" ({e.InnerException.Reason}); stopping backup");
+                    Results.PathsSkipped = true;
+                    return false;
+                }
+            }
+
+            state.RelativePathComponents.RemoveAt(state.RelativePathComponents.Count - 1);
+
+            return true;
         }
 
         /// <summary>
@@ -201,7 +225,7 @@ namespace IncrementalBackup
             catch (FilesystemException e) {
                 Logger.Warning(
                     $"Failed to back up directory \"{fullPath}\" to \"{directoryBackupPath}\" ({e.Reason}); skipping");
-                PathsSkipped = true;
+                Results.PathsSkipped = true;
                 return false;
             }
 
@@ -213,8 +237,8 @@ namespace IncrementalBackup
                 catch (BackupManifestFileIOException e) {
                     Logger.Warning(
                         $"Failed to record directory \"{fullPath}\" in manifest file \"{ManifestWriter.FilePath}\" ({e.InnerException.Message}); skipping");
-                    PathsSkipped = true;
-                    ManifestComplete = false;
+                    Results.PathsSkipped = true;
+                    Results.ManifestComplete = false;
                     return false;
                 }
             }
@@ -245,7 +269,7 @@ namespace IncrementalBackup
             catch (FilesystemException e) {
                 Logger.Warning(
                     $"Failed to enumerate files in directory \"{fullDirectoryPath}\" ({e.Reason}); skipping");
-                PathsSkipped = true;
+                Results.PathsSkipped = true;
                 return;
             }
 
@@ -264,7 +288,7 @@ namespace IncrementalBackup
                 catch (FilesystemException e) {
                     Logger.Warning(
                         $"Failed to read metadata of file \"{fullFilePath.Value}\" ({e.Reason}); skipping");
-                    PathsSkipped = true;
+                    Results.PathsSkipped = true;
                     continue;
                 }
 
@@ -303,7 +327,7 @@ namespace IncrementalBackup
             catch (FilesystemException e) {
                 Logger.Warning(
                     $"Failed to back up file \"{fullFilePath.Value}\" to \"{fileBackupPath}\" ({e.Reason}); skipping");
-                PathsSkipped = true;
+                Results.PathsSkipped = true;
                 return;
             }
 
@@ -315,7 +339,7 @@ namespace IncrementalBackup
             catch (BackupManifestFileIOException e) {
                 Logger.Warning(
                     $"Failed to record file \"{fullFilePath.Value}\" in manifest file \"{ManifestWriter.FilePath}\" ({e.InnerException.Reason})");
-                ManifestComplete = false;
+                Results.ManifestComplete = false;
             }
         }
 
@@ -367,8 +391,38 @@ namespace IncrementalBackup
             path = Utility.RemoveTrailingDirSep(path);
             return ExcludePaths.Any(p => string.Compare(path, Utility.RemoveTrailingDirSep(p), true) == 0);
         }
+
+        /// <summary>
+        /// Contains the state for the backup source directory search.
+        /// </summary>
+        private class SearchState
+        {
+            public SearchState(bool isRootNode, List<Func<SearchState, bool>> nodeStack,
+                    List<string> relativePathComponents) {
+                IsRootNode = isRootNode;
+                NodeStack = nodeStack;
+                RelativePathComponents = relativePathComponents;
+            }
+
+            /// <summary>
+            /// Indicates if the current node is the backup source directory.
+            /// </summary>
+            public bool IsRootNode;
+            /// <summary>
+            /// The stack of search operations queued to be performed. Each operation accepts the current search state
+            /// and returns a boolean indicating whether the search should continue.
+            /// </summary>
+            public List<Func<SearchState, bool>> NodeStack;
+            /// <summary>
+            /// The components of the path of the current search directory, relative to the backup source directory.
+            /// </summary>
+            public List<string> RelativePathComponents;
+        }
     }
 
+    /// <summary>
+    /// Indicates that a backup operation failed completely, i.e. could not be started and no files were copied.
+    /// </summary>
     class BackupException : Exception
     {
         public BackupException(string message, FilesystemException innerException) :

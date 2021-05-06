@@ -34,7 +34,7 @@ namespace IncrementalBackup
         /// <returns>The process return code.</returns>
         private ProcessExitCode Run(string[] cmdArgs) {
             try {
-                BackupConfig config = ParseCmdArgs(cmdArgs);
+                AppConfig config = ParseCmdArgs(cmdArgs);
                 LogConfig(config);
                 var index = ReadBackupIndex(config.TargetPath);
                 var previousBackups = ReadPreviousBackups(config.SourcePath, config.TargetPath, index);
@@ -68,15 +68,15 @@ namespace IncrementalBackup
         /// Parses and validates the application's command line arguments.
         /// </summary>
         /// <remarks>
-        /// Note that the filesystem paths in the returned <see cref="BackupConfig"/> are not guaranteed to be valid,
+        /// Note that the filesystem paths in the returned <see cref="AppConfig"/> are not guaranteed to be valid,
         /// as this is unfortunately not really possible to check without actually doing the desired I/O operation. <br/>
         /// However, some invalid paths are detected by this method.
         /// </remarks>
         /// <param name="args">The command line arguments.</param>
-        /// <returns>The <see cref="BackupConfig"/> parsed from the arguments.</returns>
+        /// <returns>The <see cref="AppConfig"/> parsed from the arguments.</returns>
         /// <exception cref="InvalidCmdArgsError">If the command line arguments are invalid.</exception>
         /// <exception cref="ApplicationRuntimeError">If the config paths can't be resolved.</exception>
-        private BackupConfig ParseCmdArgs(string[] args) {
+        private AppConfig ParseCmdArgs(string[] args) {
             if (args.Length < 2) {
                 throw new InvalidCmdArgsError();
             }
@@ -130,10 +130,10 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Outputs a <see cref="BackupConfig"/> to <see cref="Logger"/>.
+        /// Outputs a <see cref="AppConfig"/> to <see cref="Logger"/>.
         /// </summary>
-        /// <param name="config">The backup config to output.</param>
-        private void LogConfig(BackupConfig config) {
+        /// <param name="config">The application config to output.</param>
+        private void LogConfig(AppConfig config) {
             Logger.Info($"Source directory: {config.SourcePath}");
             Logger.Info($"Target directory: {config.TargetPath}");
             Logger.Info("Exclude paths:\n"
@@ -293,7 +293,7 @@ namespace IncrementalBackup
         /// <returns>Results of the backup.</returns>
         /// <exception cref="ApplicationRuntimeError">If the backup fails.</exception>
         /// <seealso cref="Backup.Run(string, IReadOnlyList{string}, IReadOnlyList{PreviousBackup}, string, BackupManifestWriter, Logger)"/>
-        private BackupResults DoBackup(BackupConfig config, IReadOnlyList<PreviousBackup> previousBackups,
+        private BackupResults DoBackup(AppConfig config, IReadOnlyList<PreviousBackup> previousBackups,
                 string backupName, BackupManifestWriter manifestWriter) {
             var backupPath = BackupMeta.BackupPath(config.TargetPath, backupName);
             Logger.Info("Copying files");
@@ -346,7 +346,7 @@ namespace IncrementalBackup
     }
 
     /// <summary>
-    /// Configuration of a backup run.
+    /// Configuration of the application.
     /// </summary>
     /// <param name="SourcePath">The path of the directory to be backed up. Should be fully qualified and normalised.
     /// </param>
@@ -354,7 +354,7 @@ namespace IncrementalBackup
     /// </param>
     /// <param name="ExcludePaths">A list of files and folders that are excluded from being backed up.
     /// Each path should be fully qualified and normalised.</param>
-    record BackupConfig(
+    record AppConfig(
         string SourcePath,
         string TargetPath,
         IReadOnlyList<string> ExcludePaths

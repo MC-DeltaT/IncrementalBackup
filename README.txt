@@ -23,7 +23,7 @@ Purpose
 Requirements
     - Windows
     - .NET 5.0
-    - C# 8
+    - C# 9
     - Visual Studio 2019 (probably? I don't know how VS compatibility works).
 
 
