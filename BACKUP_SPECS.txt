@@ -1,0 +1,162 @@
+Backup Specification
+
+
+Introduction
+    This document specifies the internal structure of backups. That is, what this tool stores in the target directory.
+    For general backing up of files, you probably don't need to know this information. If you are looking to extend
+    this tool or integrate it with another system, you probably will need to know.
+    Note that manually editing the backup data is possible, but not recommended. It might cause the tool to behave
+    in an unexpected manner (although I have tried to make it fail securely).
+
+
+Target Directory Structure
+    Within the target directory, 2 things are stored.
+    
+    Firstly, the backups themselves. Each backup is fully contained within its own directory. These backup directories
+    are named randomly (16 random alphanumeric characters). The format of a backup directory is described in the
+    "Backup Directory Structure" section.
+    
+    Secondly, the backup index file, "index.txt". This file contains an index of the previous backups that exist in
+    this target directory, for quick lookup in future backups. The format of this file is described in the
+    "Backup Index File" section.
+
+
+Backup Index File - index.txt
+    This file is present in the target directory and lists the backups that exist in the target directory.
+    
+    The file's data is UTF-8 text and is line-based. Each line specifies 1 backup, in the following format:
+        <backup_name>;<source_directory>
+     
+    <backup_name> is the name of the backup's directory within the target directory. This must only contain
+    alphanumeric characters.
+    
+    <source_directory> is the fully qualified path of the backup's source directory. It shall be a normalised. The
+    path is encoded so that it does not span several lines. See the "Newline Encoding" section.
+    The source directory is present here so that relevant previous backups may be searched quickly, without having to
+    go into each backup. However, it means that this data is duplicated in the index file and the backup's own
+    metadata. It is important that the values remain consistent, otherwise that backup will be considered invalid and
+    will be ignore for future backups.
+    
+    A backup is added to the index file once the backup operation is complete. In the case that a backup is terminated
+    early (e.g. due to a runtime error), that backup won't be recorded in the index file. This is the intended
+    behaviour. If a backup is listed in the index file, it is declared as being valid and usable by future backups.
+
+
+Backup Directory Structure
+    Each backup is contained within a subdirectory of the target directory. The backup consists of 1 directory for
+    data, 3 metadata files, and a log file.
+    
+    The data directory, "data" contains the directories and files copied from the source directory. The structure of
+    the directories and files are identical to that of the source directory (basically as if you copy and pasted the
+    source directory using Windows File Explorer). The "data" directory represents the source directory (i.e. the
+    contents of the source directory become the contents of the "data" directory).
+    
+    The 3 metadata files are as follows:
+        - "start.json" - contains startup and configuration information. See section "Backup Start Information File".
+        - "manifest.txt" - lists the directories and files backed up. See section "Backup Manifest File".
+        - "completion.json" - contains some results of the backup. See section "Backup Completion Information File".
+
+    The log file, "log.txt" contains a log of the console output. See section "Backup Log File".
+
+
+Backup Start Information File - start.json
+    This file contains backup metadata available at the start of the backup.
+    
+    It is a UTF-8-encoded JSON file, consisting of a single object with the following properties:
+        - SourcePath (string)
+        - StartTime (string)
+
+    SourcePath is the fully qualified path of the backup's source directory. It shall be normalised.
+    Note that the value of this property is duplicated in the backup index. It should be consistent with the value in
+    the backup index.
+    
+    StartTime is the UTC time just before the first file was backed up. It is a string, formatted according to C#'s
+    default JSON encoding for DateTime objects (which I believe is ISO 8601).
+    This property is used by future backups in conjunction with the backup manifest to determine which files to back up
+    (i.e. if the file has been modified since StartTime).
+    
+    This file is created just before beginning to copy files. Every backup listed in the backup index shall have this
+    file.
+
+
+Backup Manifest File - manifest.txt
+    This file lists all directories and files successfully backed up.
+
+    This file's structure is derived from the depth-first search used to explore the backup source directory. It would
+    be very inefficient to store the full path of every directory and file that was backed up. Instead, we track the
+    depth-first search, which implicitly stores the path to the current search directory as part of its operation. Any
+    files recorded are known to be contained within the current search directory.
+    This file represents a sequence of operations manipulating the current search directory, such as "push directory"
+    and "pop directory". The current search directory begins as the backup source directory.
+
+    It is a UTF-8-encoded text file, and is line-based. Each line has one of the following 3 formats:
+        (1) d;<directory_name>
+        (2) p;
+        (3) f;<file_name>
+
+    Format 1 manipulates the current search directory by pushing one of its subdirectories. The subdirectory's name is
+    given by <directory_name>. <directory_name> is encoded so that it does not span several lines. See the
+    "Newline Encoding" section.
+    This line is also used to record the directory itself as having been backed up.
+    
+    Format 2 manipulates the current search directory by popping the innermost directory and returning to its parent.
+    This shall not pop past the backup source directory.
+    
+    Format 3 records a file within the current search directory as having been backed up. The file's name is given by
+    <file_name>. <file_name> is encoded so that it does not span several lines. See the "Newline Encoding" section.
+
+    This file is incrementally written as the backup operation occurs. As a result if the backup is terminated early
+    (e.g. by a runtime error), this file is most likely still valid.
+    Every backup listed in the backup index shall have this file.
+
+
+Backup Completion Information File - completion.json
+    This file contains backup metadata available at the end of the backup.
+    
+    It is a UTF-8-encoded JSON file, consisting of a single object with the following properties:
+        - EndTime (string)
+        - PathsSkipped (boolean)
+        - ManifestComplete (boolean)
+    
+    EndTime is the UTC time just after the last file was backed up. It is a string, formatted according to C#'s
+    default JSON encoding for DateTime objects (which I believe is ISO 8601).
+    
+    PathsSkipped indicates if any directories or files were not backed up due to errors. It does NOT include paths that
+    were specified by the user to be excluded.
+    
+    ManifestComplete indicates if the backup manifest lists all the files and directories that were backed up. In some
+    cases, a file may have been backed up, but a filesystem error occurred when trying to record the file in the
+    manifest (although this should not occur in typical operation).
+    
+    This file will not be present if the backup was terminated early (e.g. due to a runtime error), or if an error
+    occurred while trying to create it. It is not critical that this file exists.
+    
+    At this time, this metadata is not used by the tool. It is only saved because it seems like important information
+    that may be useful later, either to the tool or to a human.
+
+
+Backup Log File - log.txt
+    This file contains a copy of the console output from the point of creating the backup directory onwards.
+    It is indended for human reading only (I don't guarantee any specific format).
+    This file may not be present if an error occurred while trying to create it. It is not critical that this file
+    exists.
+
+
+Newline Encoding
+    In certain circumstances it is important that a string does not span multiple lines, i.e. it contains no newline
+    characters. This is achieved by replacing the newline characters with an encoded equivalent. The newline characters
+    accounted for are \n (newline), and \r (line feed). This should take care of Windows and Linux systems. If you use
+    some more exotic system, it would probably not be a good idea to edit the internal backup files.
+    
+    To perform the encoding, the following character replacements are made:
+        \ (backslash) becomes \\ (2 backslashes).
+        \n (newline) becomes literal "\n" (backslash followed by English n).
+        \r (linefeed) becomes literal "\r" (backslash followed by English r).
+    Note that \ (backslash) is effectively used as an escape character.
+
+    To reverse the encoding, the encoded string is scanned for \ (backslash) characters. At each occurrence of
+    \ (backslash), one of the following transformations is done:
+        If the next character is n (English n), the \ and the n are replaced with \n (newline).
+        If the next character is r (English r), the \ and the r are replaced with \r (line feed).
+        If the next character is \ (backslash), the \ and the following \ are replaced with a single \ (backslash).
+        Otherwise, no transformation is done (i.e. the character remains as-is).
