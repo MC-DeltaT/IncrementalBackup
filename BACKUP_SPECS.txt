@@ -1,4 +1,4 @@
-Backup Specification
+Incremental Backup Utility - Backup Specification
 
 
 Introduction

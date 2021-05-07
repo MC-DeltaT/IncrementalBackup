@@ -8,7 +8,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Logs messages to the console and to file.
     /// </summary>
-    class Logger : Disposable
+    public class Logger : Disposable
     {
         public Logger(ConsoleLogHandler? consoleHandler, FileLogHandler? fileHandler) {
             ConsoleHandler = consoleHandler;
@@ -90,7 +90,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Logs messages to <see cref="Console.Out"/> and <see cref="Console.Error"/>.
     /// </summary>
-    class ConsoleLogHandler
+    public class ConsoleLogHandler
     {
         /// <summary>
         /// Logs a message to the console.
@@ -116,7 +116,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Logs messages to a file.
     /// </summary>
-    class FileLogHandler : Disposable
+    public class FileLogHandler : Disposable
     {
         /// <summary>
         /// Creates a handler that logs to a file at the given path. <br/>
@@ -170,7 +170,7 @@ namespace IncrementalBackup
         private readonly StreamWriter Stream;
     }
 
-    static class LogFormatter
+    public static class LogFormatter
     {
         /// <summary>
         /// Formats a log message. <br/>
@@ -203,7 +203,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Severity level for messages logged via <see cref="Logger"/>.
     /// </summary>
-    enum LogLevel
+    public enum LogLevel
     {
         /// <summary>
         /// Informational purposes only, everything is ok.
@@ -222,7 +222,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Thrown from log handlers to indicate an I/O error on the underlying medium.
     /// </summary>
-    class LoggingException : Exception
+    public class LoggingException : Exception
     {
         public LoggingException(string message, Exception? innerException) :
             base(message, innerException) { }

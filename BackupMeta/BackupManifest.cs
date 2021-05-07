@@ -9,7 +9,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Records all the files and directories that were successfully backed up.
     /// </summary>
-    class BackupManifest
+    public class BackupManifest
     {
         /// <summary>
         /// Tree of files and directories that were successfully backed up. <br/>
@@ -18,7 +18,7 @@ namespace IncrementalBackup
         public DirectoryNode Root = new("source");
     }
 
-    static class BackupManifestReader
+    public static class BackupManifestReader
     {
         /// <summary>
         /// Reads a backup manifest from file.
@@ -131,7 +131,7 @@ namespace IncrementalBackup
     /// Without the manifest written, a backup is effectively useless, as it could not be built upon in
     /// the next backup.
     /// </remarks>
-    class BackupManifestWriter : Disposable
+    public class BackupManifestWriter : Disposable
     {
         /// <summary>
         /// Constructs an instance that writes a new backup manifest the to given file. <br/>
@@ -238,7 +238,7 @@ namespace IncrementalBackup
         private readonly StreamWriter Stream;
     }
 
-    static class BackupManifestFileConstants
+    public static class BackupManifestFileConstants
     {
         public const char PUSH_DIRECTORY = 'd';
         public const char POP_DIRECTORY = 'p';
@@ -249,7 +249,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup manifest file operation failed.
     /// </summary>
-    abstract class BackupManifestFileException : BackupMetaFileException
+    public abstract class BackupManifestFileException : BackupMetaFileException
     {
         public BackupManifestFileException(string filePath, string message, Exception? innerException) :
             base(filePath, message, innerException) {}
@@ -258,7 +258,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup manifest file operation failed due to filesystem-related errors.
     /// </summary>
-    class BackupManifestFileIOException : BackupManifestFileException
+    public class BackupManifestFileIOException : BackupManifestFileException
     {
         public BackupManifestFileIOException(string filePath, FilesystemException innerException) :
             base(filePath, $"Failed to access backup manifest file \"{filePath}\": {innerException.Reason}",
@@ -271,7 +271,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup manifest file could not be parsed because it is not in a valid format.
     /// </summary>
-    class BackupManifestFileParseException : BackupManifestFileException
+    public class BackupManifestFileParseException : BackupManifestFileException
     {
         public BackupManifestFileParseException(string filePath, long line) :
             base(filePath,  $"Failed to parse backup manifest file \"{filePath}\", line {line}", null) {

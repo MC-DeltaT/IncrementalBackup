@@ -9,7 +9,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Miscellaneous static functionality.
     /// </summary>
-    static class Utility
+    public static class Utility
     {
         public static Random RandomEngine = new(unchecked((int)(7451L * DateTime.UtcNow.Ticks)));
 
@@ -100,7 +100,7 @@ namespace IncrementalBackup
     /// Simply inherit from this class and override <see cref="DisposeManaged"/> and/or <see cref="DisposeUnmanaged"/>
     /// to implement resource disposal.
     /// </summary>
-    abstract class Disposable : IDisposable
+    public abstract class Disposable : IDisposable
     {
         ~Disposable() =>
             Dispose(true);

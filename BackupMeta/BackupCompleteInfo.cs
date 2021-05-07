@@ -14,13 +14,13 @@ namespace IncrementalBackup
     /// (NOT inclusive of paths that were specifically requested to be exluded).</param>
     /// <param name="ManifestComplete">Indicates whether all files and directories backed up were recorded in the
     /// backup manifest file.</param>
-    record BackupCompleteInfo(
+    public record BackupCompleteInfo(
         DateTime EndTime,
         bool PathsSkipped,
         bool ManifestComplete
     );
 
-    static class BackupCompleteInfoReader
+    public static class BackupCompleteInfoReader
     {
         /// <summary>
         /// Reads backup completion info from file.
@@ -55,7 +55,7 @@ namespace IncrementalBackup
         }
     }
 
-    static class BackupCompleteInfoWriter
+    public static class BackupCompleteInfoWriter
     {
         /// <summary>
         /// Writes backup completion info to file. <br/>
@@ -79,7 +79,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup completion info file operation failed.
     /// </summary>
-    abstract class BackupCompleteInfoFileException : BackupMetaFileException
+    public abstract class BackupCompleteInfoFileException : BackupMetaFileException
     {
         public BackupCompleteInfoFileException(string filePath, string message, Exception? innerException) :
             base(filePath, message, innerException) {}
@@ -88,7 +88,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup completion info file operation failed due to filesystem-related errors.
     /// </summary>
-    class BackupCompleteInfoFileIOException : BackupCompleteInfoFileException
+    public class BackupCompleteInfoFileIOException : BackupCompleteInfoFileException
     {
         public BackupCompleteInfoFileIOException(string filePath, FilesystemException innerException) :
             base(filePath, $"Failed to access backup completion info file \"{filePath}\": {innerException.Reason}",
@@ -101,7 +101,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup completion info file could not be parsed because it is not in a valid format.
     /// </summary>
-    class BackupCompleteInfoFileParseException : BackupCompleteInfoFileException
+    public class BackupCompleteInfoFileParseException : BackupCompleteInfoFileException
     {
         public BackupCompleteInfoFileParseException(string filePath, JsonException innerException) :
             base(filePath, $"Failed to parse backup completion info file \"{filePath}\": {innerException.Message}",

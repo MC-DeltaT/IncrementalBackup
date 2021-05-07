@@ -11,12 +11,12 @@ namespace IncrementalBackup
     /// <param name="SourcePath">The path of the directory that was backed up. Should be normalised.</param>
     /// <param name="StartTime">The UTC time at which the backup was initiated (just before any files were copied).
     /// </param>
-    record BackupStartInfo(
+    public record BackupStartInfo(
         string SourcePath,
         DateTime StartTime
     );
 
-    static class BackupStartInfoReader
+    public static class BackupStartInfoReader
     {
         /// <summary>
         /// Reads backup start info from file.
@@ -51,7 +51,7 @@ namespace IncrementalBackup
         }
     }
 
-    static class BackupStartInfoWriter
+    public static class BackupStartInfoWriter
     {
         /// <summary>
         /// Writes backup start info to file. <br/>
@@ -75,7 +75,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup start info file operation failed.
     /// </summary>
-    abstract class BackupStartInfoFileException : BackupMetaFileException
+    public abstract class BackupStartInfoFileException : BackupMetaFileException
     {
         public BackupStartInfoFileException(string filePath, string message, Exception? innerException) :
             base(filePath, message, innerException) {}
@@ -84,7 +84,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup start info file operation failed due to filesystem-related errors.
     /// </summary>
-    class BackupStartInfoFileIOException : BackupStartInfoFileException
+    public class BackupStartInfoFileIOException : BackupStartInfoFileException
     {
         public BackupStartInfoFileIOException(string filePath, FilesystemException innerException) :
             base(filePath,
@@ -97,7 +97,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup start info file could not be parsed because it is not in a valid format.
     /// </summary>
-    class BackupStartInfoFileParseException : BackupStartInfoFileException
+    public class BackupStartInfoFileParseException : BackupStartInfoFileException
     {
         public BackupStartInfoFileParseException(string filePath, JsonException innerException) :
             base(filePath, $"Failed to parse backup start info file \"{filePath}\": {innerException.Message}",

@@ -10,7 +10,7 @@ namespace IncrementalBackup
     /// Indexes all the backups present in a target directory. <br/>
     /// Gets saved to the target directory to indicate what backups exist.
     /// </summary>
-    class BackupIndex
+    public class BackupIndex
     {
         /// <summary>
         /// Maps backup directory names to the source directory used in the backup. <br/>
@@ -19,7 +19,7 @@ namespace IncrementalBackup
         public Dictionary<string, string> Backups = new();
     }
 
-    class BackupIndexReader
+    public class BackupIndexReader
     {
         /// <summary>
         /// Reads a backup index from file.
@@ -85,7 +85,7 @@ namespace IncrementalBackup
         }
     }
 
-    class BackupIndexWriter
+    public class BackupIndexWriter
     {
         /// <summary>
         /// Writes a new backup entry to a backup index file.
@@ -120,7 +120,7 @@ namespace IncrementalBackup
         }
     }
 
-    static class BackupIndexFileConstants
+    public static class BackupIndexFileConstants
     {
         public const char SEPARATOR = ';';
     }
@@ -128,7 +128,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup index file operation failed.
     /// </summary>
-    abstract class BackupIndexFileException : BackupMetaFileException
+    public abstract class BackupIndexFileException : BackupMetaFileException
     {
         public BackupIndexFileException(string filePath, string message, Exception? innerException) :
             base(filePath, message, innerException) {}
@@ -137,7 +137,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup index file operation failed due to filesystem-related errors.
     /// </summary>
-    class BackupIndexFileIOException : BackupIndexFileException
+    public class BackupIndexFileIOException : BackupIndexFileException
     {
         public BackupIndexFileIOException(string filePath, FilesystemException innerException) :
             base(filePath, $"Failed to access backup index file \"{filePath}\": {innerException.Reason}",
@@ -150,7 +150,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup index file could not be parsed because it is not in a valid format.
     /// </summary>
-    class BackupIndexFileParseException : BackupIndexFileException
+    public class BackupIndexFileParseException : BackupIndexFileException
     {
         public BackupIndexFileParseException(string filePath, long line) :
             base(filePath, $"Failed to parse backup index file \"{filePath}\", line {line}",

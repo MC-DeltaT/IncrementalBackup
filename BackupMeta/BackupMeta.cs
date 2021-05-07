@@ -8,7 +8,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Functionality for the file and directory structure of backups.
     /// </summary>
-    static class BackupMeta
+    public static class BackupMeta
     {
         /// <summary>
         /// Creates a new randomly-named backup directory in the given directory. Creates the given directory too, if
@@ -141,7 +141,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup metadata or metastructure operation failed.
     /// </summary>
-    abstract class BackupMetaException : Exception
+    public abstract class BackupMetaException : Exception
     {
         public BackupMetaException(string message, Exception? innerException) :
             base(message, innerException) { }
@@ -150,7 +150,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates a backup metadata file operation failed.
     /// </summary>
-    abstract class BackupMetaFileException : BackupMetaException
+    public abstract class BackupMetaFileException : BackupMetaException
     {
         public BackupMetaFileException(string filePath, string message, Exception? innerException) :
             base(message, innerException) {
@@ -166,7 +166,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Thrown from <see cref="BackupMeta.CreateBackupDirectory(string)"/> on failure.
     /// </summary>
-    class BackupDirectoryCreateException : BackupMetaException {
+    public class BackupDirectoryCreateException : BackupMetaException {
         public BackupDirectoryCreateException(string targetPath, IReadOnlyList<string> attemptedDirectoryNames,
                 FilesystemException? innerException) :
             base($"Failed to create new backup directory in \"{targetPath}\"", innerException) {
@@ -199,7 +199,7 @@ namespace IncrementalBackup
     /// Such inconsistency should never occur in practice, if the application works correctly. <br/>
     /// However, it is possible and probably shouldn't be ignored if it is detected.
     /// </remarks>
-    class BackupMetadataInconsistentException : BackupMetaException
+    public class BackupMetadataInconsistentException : BackupMetaException
     {
         public BackupMetadataInconsistentException(string backupPath, string message) :
             base(message, null) {

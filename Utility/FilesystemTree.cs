@@ -6,7 +6,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Represents a directory in a filesystem.
     /// </summary>
-    class DirectoryNode
+    public class DirectoryNode
     {
         public DirectoryNode(string name) {
             Name = name;
