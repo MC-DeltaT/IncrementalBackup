@@ -6,6 +6,34 @@ using System.IO;
 namespace IncrementalBackup
 {
     /// <summary>
+    /// Stores all metadata for a backup. Used mainly when reading previous backups.
+    /// </summary>
+    public class BackupMetadata
+    {
+        public BackupMetadata(string name, BackupStartInfo startInfo, BackupManifest manifest) {
+            Name = name;
+            StartInfo = startInfo;
+            Manifest = manifest;
+        }
+
+        /// <summary>
+        /// The name of the backup directory.
+        /// </summary>
+        public readonly string Name;
+        /// <summary>
+        /// The backup's startup information.
+        /// </summary>
+        public readonly BackupStartInfo StartInfo;
+        /// <summary>
+        /// The backup manifest.
+        /// </summary>
+        public readonly BackupManifest Manifest;
+
+        // Note that BackupCompleteInfo is not included here, because it is currently not used by the application after
+        // writing.
+    }
+
+    /// <summary>
     /// Functionality for the file and directory structure of backups.
     /// </summary>
     public static class BackupMeta
@@ -189,26 +217,5 @@ namespace IncrementalBackup
         /// The new backup directory names which were tried (and failed).
         /// </summary>
         public IReadOnlyList<string> AttemptedDirectoryNames;
-    }
-
-    /// <summary>
-    /// Indicates that some backup metadata (e.g. backup index, start info file, etc.) contradicts some other backup
-    /// metadata.
-    /// </summary>
-    /// <remarks>
-    /// Such inconsistency should never occur in practice, if the application works correctly. <br/>
-    /// However, it is possible and probably shouldn't be ignored if it is detected.
-    /// </remarks>
-    public class BackupMetadataInconsistentException : BackupMetaException
-    {
-        public BackupMetadataInconsistentException(string backupPath, string message) :
-            base(message, null) {
-            BackupPath = backupPath;
-        }
-
-        /// <summary>
-        /// The path of the backup directory whose metadata is inconsistent.
-        /// </summary>
-        public readonly string BackupPath;
     }
 }

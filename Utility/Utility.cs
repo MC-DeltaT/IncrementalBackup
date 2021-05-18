@@ -48,6 +48,16 @@ namespace IncrementalBackup
             str.Any(c => c is '\n' or '\r');
 
         /// <summary>
+        /// Checks if two paths, or path components (e.g. file or directory names) are equal. Equality checking ignores
+        /// case, but does not take directory separator equivalences into account.
+        /// </summary>
+        /// <param name="path1">The first path component.</param>
+        /// <param name="path2">The second path component.</param>
+        /// <returns><c>true</c> if the paths are equal, otherwise <c>false</c>.</returns>
+        public static bool PathEqual(string path1, string path2) =>
+            string.Compare(path1, path2, StringComparison.OrdinalIgnoreCase) == 0;
+
+        /// <summary>
         /// Encodes newlines in a string such that it becomes a single line. <br/>
         /// The result may be decoded with <see cref="NewlineDecode(string)"/>.
         /// </summary>

@@ -89,21 +89,36 @@ Backup Manifest File - manifest.txt
     This file represents a sequence of operations manipulating the current search directory, such as "push directory"
     and "pop directory". The current search directory begins as the backup source directory.
 
-    It is a UTF-8-encoded text file, and is line-based. Each line has one of the following 3 formats:
-        (1) d;<directory_name>
-        (2) p;
-        (3) f;<file_name>
+    It is a UTF-8-encoded text file, and is line-based. Each line has the following format:
+        <command>;<argument>
+    <command> is a 2-character code that determines the type of record on this line.
+    <argument> is an optional string parameter for that command type. <argument> is encoded so that it does not span
+    several lines; see the "Newline Encoding" section.
+    
+    The commands are as follows:
+        >d (Enter directory)
+        <d (Backtrack directory)
+        -d (Directory removed)
+        +f (File backed up)
+        -f (File removed)
 
-    Format 1 manipulates the current search directory by pushing one of its subdirectories. The subdirectory's name is
-    given by <directory_name>. <directory_name> is encoded so that it does not span several lines. See the
-    "Newline Encoding" section.
+    The "enter directory" command manipulates the current search directory by pushing one of its direct subdirectories.
+    <argument> specifies the subdirectory's name.
     This line is also used to record the directory itself as having been backed up.
     
-    Format 2 manipulates the current search directory by popping the innermost directory and returning to its parent.
-    This shall not pop past the backup source directory.
+    The "backtrack directory" command manipulates the current search directory by backtracking to its parent directory.
+    <argument> is not used. This shall never backtrack past the backup source directory.
     
-    Format 3 records a file within the current search directory as having been backed up. The file's name is given by
-    <file_name>. <file_name> is encoded so that it does not span several lines. See the "Newline Encoding" section.
+    The "directory removed" command records a direct subdirectory of the current search directory as removed since the
+    last backup. <argument> specifies the subdirectory's name.
+    
+    The "file backed up" command records a file directly contained within the current search directory as modified or
+    created since the last backup, and thus having been backed up (copied). <argument> specifies the file's name.
+    
+    The "file removed" command records a file directly contained within the current search directory as removed since
+    the last backup. <argument> specifies the file's name.
+    This record is required for the purposes of restoring files from backups. Otherwise, you could only restore all
+    files that were ever backed up - even deleted ones - which is likely not desired.
 
     This file is incrementally written as the backup operation occurs. As a result if the backup is terminated early
     (e.g. by a runtime error), this file is most likely still valid.

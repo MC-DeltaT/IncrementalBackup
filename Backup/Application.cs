@@ -38,8 +38,9 @@ namespace IncrementalBackup
                 LogConfig(config);
                 var index = ReadBackupIndex(config.TargetPath);
                 var previousBackups = ReadPreviousBackups(config.SourcePath, config.TargetPath, index);
+                BackupSum previousBackupSum = new(previousBackups);
                 var (backupName, manifestWriter) = InitialiseBackup(config.SourcePath, config.TargetPath);
-                var results = DoBackup(config, previousBackups, backupName, manifestWriter);
+                var results = DoBackup(config, previousBackupSum, backupName, manifestWriter);
                 var metadataWritten = CompleteBackup(config.SourcePath, config.TargetPath, backupName, results);
 
                 if (!results.PathsSkipped && results.ManifestComplete && metadataWritten) {
@@ -68,8 +69,8 @@ namespace IncrementalBackup
         /// Parses and validates the application's command line arguments.
         /// </summary>
         /// <remarks>
-        /// Note that the filesystem paths in the returned <see cref="AppConfig"/> are not guaranteed to be valid,
-        /// as this is unfortunately not really possible to check without actually doing the desired I/O operation. <br/>
+        /// Note that the filesystem paths in the returned <see cref="AppConfig"/> are not guaranteed to be valid, as
+        /// this is unfortunately not really possible to check without actually doing the desired I/O operation. <br/>
         /// However, some invalid paths are detected by this method.
         /// </remarks>
         /// <param name="args">The command line arguments.</param>
@@ -176,19 +177,19 @@ namespace IncrementalBackup
         /// <param name="targetPath">The target directory which is being examined.</param>
         /// <param name="index">The backup index detailing all the existing backups in <paramref name="targetPath"/>.
         /// If <c>null</c>, no manifests are matched.</param>
-        /// <returns>A list of the matched backup manifests, in unspecified order.</returns>
-        private List<PreviousBackup> ReadPreviousBackups(string sourcePath, string targetPath, BackupIndex? index) {
+        /// <returns>A list of the matched backups, in unspecified order.</returns>
+        private List<BackupMetadata> ReadPreviousBackups(string sourcePath, string targetPath, BackupIndex? index) {
             if (index is null) {
                 return new();
             }
 
-            List<PreviousBackup> previousBackups = new();
+            List<BackupMetadata> previousBackups = new();
             foreach (var pair in index.Backups) {
                 var backupName = pair.Key;
                 var backupSourcePath = pair.Value;
 
                 // Paths are assumed to be already normalised.
-                if (string.Compare(sourcePath, backupSourcePath, true) == 0) {
+                if (Utility.PathEqual(sourcePath, backupSourcePath)) {
                     var backupPath = Path.Join(targetPath, backupName);
 
                     var startInfoFilePath = BackupMeta.StartInfoFilePath(backupPath);
@@ -203,7 +204,7 @@ namespace IncrementalBackup
 
                     // We could just assume the index file and start info file are consistent, but it might be a
                     // good idea to check just in case something goes particularly wrong.
-                    if (string.Compare(sourcePath, startInfo.SourcePath, true) != 0) {
+                    if (!Utility.PathEqual(sourcePath, startInfo.SourcePath)) {
                         Logger.Warning(
                             $"Source directory of backup start info in previous backup \"{backupName}\" doesn't match backup index");
                         continue;
@@ -219,7 +220,7 @@ namespace IncrementalBackup
                         continue;
                     }
 
-                    previousBackups.Add(new(startInfo.StartTime, manifest));
+                    previousBackups.Add(new(backupName, startInfo, manifest));
                 }
             }
 
@@ -287,21 +288,20 @@ namespace IncrementalBackup
         /// Runs the backup.
         /// </summary>
         /// <param name="config">The configuration of this backup.</param>
-        /// <param name="previousBackups">The existing backup data for this source directory.</param>
+        /// <param name="previousBackupSum">Sum of the existing backup data for this source directory.</param>
         /// <param name="backupName">The name of the new backup directory.</param>
         /// <param name="manifestWriter">Writes the backup manifest. Must be in a newly-constructed state.</param>
         /// <returns>Results of the backup.</returns>
         /// <exception cref="ApplicationRuntimeError">If the backup fails.</exception>
-        /// <seealso cref="Backup.Run(string, IReadOnlyList{string}, IReadOnlyList{PreviousBackup}, string, BackupManifestWriter, Logger)"/>
-        private BackupResults DoBackup(AppConfig config, IReadOnlyList<PreviousBackup> previousBackups,
-                string backupName, BackupManifestWriter manifestWriter) {
+        private BackupResults DoBackup(AppConfig config, BackupSum previousBackupSum, string backupName,
+                BackupManifestWriter manifestWriter) {
             var backupPath = BackupMeta.BackupPath(config.TargetPath, backupName);
-            Logger.Info("Copying files");
+            Logger.Info("Running backup operation");
             try {
-                return Backup.Run(config.SourcePath, config.ExcludePaths, previousBackups, backupPath, manifestWriter,
-                    Logger);
+                return BackupService.Run(config.SourcePath, config.ExcludePaths, previousBackupSum, backupPath,
+                    manifestWriter, Logger);
             }
-            catch (BackupException e) {
+            catch (BackupServiceException e) {
                 throw new ApplicationRuntimeError(e.Message);
             }
         }
@@ -348,31 +348,27 @@ namespace IncrementalBackup
     /// <summary>
     /// Configuration of the application.
     /// </summary>
-    /// <param name="SourcePath">The path of the directory to be backed up. Should be fully qualified and normalised.
-    /// </param>
-    /// <param name="TargetPath">The path of the directory to back up to. Should be fully qualified and normalised.
-    /// </param>
-    /// <param name="ExcludePaths">A list of files and folders that are excluded from being backed up.
-    /// Each path should be fully qualified and normalised.</param>
-    record AppConfig(
-        string SourcePath,
-        string TargetPath,
-        IReadOnlyList<string> ExcludePaths
-    );
+    class AppConfig {
+        public AppConfig(string sourcePath, string targetPath, IReadOnlyList<string> excludePaths) {
+            SourcePath = sourcePath;
+            TargetPath = targetPath;
+            ExcludePaths = excludePaths;
+        }
 
-    /// <summary>
-    /// Information on a previous backup.
-    /// </summary>
-    /// <remarks>
-    /// Used to store the previous backups for a specific source directory (to know which files have been previously
-    /// backed up and when).
-    /// </remarks>
-    /// <param name="StartTime">The UTC time the backup operation started.</param>
-    /// <param name="Manifest">The backup's manifest.</param>
-    record PreviousBackup(
-        DateTime StartTime,
-        BackupManifest Manifest
-    );
+        /// <summary>
+        /// The path of the directory to be backed up. Should be fully qualified and normalised.
+        /// </summary>
+        public readonly string SourcePath;
+        /// <summary>
+        /// The path of the directory to back up to. Should be fully qualified and normalised.
+        /// </summary>
+        public readonly string TargetPath;
+        /// <summary>
+        /// A list of files and folders that are excluded from being backed up. Each path should be fully qualified and
+        /// normalised.
+        /// </summary>
+        public readonly IReadOnlyList<string> ExcludePaths;
+    }
 
     enum ProcessExitCode
     {

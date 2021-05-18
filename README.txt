@@ -41,24 +41,6 @@ Building
     The output of building the "Backup" project will be the backup creation tool executable.
 
 
-Theory of Operation
-    The premise of this tool is for it to be run regularly with the same target directory. Backups will be accumulated
-    in the target directory, which are read during the next backup to determine which files to back up (hence
-    "incremental" backup). This model allows use of the tool without any installation or data stored elsewhere on the
-    system.
-    Multiple source directories may be used with the same target directory. When performing a backup, the tool will
-    only read previous backups for the same source directory.
-    
-    Determining if a file should be backed up is based on the last write time metadata. The tool will scan for the
-    latest previous backup which contains the file. If the file has been written to since that backup, the file is
-    backed up, otherwise it is skipped. (If there are no previous backups, all files are backed up.)
-    Note that if you mess with files' last write times, or mess with the system clock, or your timezone is
-    particularly strange, this tool may not work as expected.
-
-    Note that matching of paths is done literally and is case insensitive. "Literally" meaning that path aliasing (for
-    example symbolic links) is probably not handled. The case insensitivity is because Windows uses case insensitive
-    paths.
-    This applies to matching previous backups based on the source directory, and for matching excluded paths.
-
-    Please see the "BACKUP_SPECS.txt" file for specific technical information on how the backups are stored.
-
+Usage
+    To find out how to use this tool to back up files (which is probably what you want to do to start off with), please
+    see the "BACKUP.txt" file.
