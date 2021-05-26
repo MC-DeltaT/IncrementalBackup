@@ -54,9 +54,17 @@ namespace IncrementalBackup
                                 case BackupManifest.Directory dir:
                                     subdirectories.Add(dir);
                                     break;
-                                case BackupManifest.BackedUpFile file:
-                                    nodeStack[^1].Files.Add(new(file.Name, backup));
-                                    break;
+                                case BackupManifest.BackedUpFile file: {
+                                        var prevFile = nodeStack[^1].Files.Find(
+                                            f => Utility.PathEqual(f.Name, file.Name));
+                                        if (prevFile is null) {
+                                            nodeStack[^1].Files.Add(new(file.Name, backup));
+                                        }
+                                        else {
+                                            prevFile.LastBackup = backup;
+                                        }
+                                        break;
+                                    }
                                 case BackupManifest.RemovedFile removedFile:
                                     nodeStack[^1].Files.RemoveAll(f => Utility.PathEqual(f.Name, removedFile.Name));
                                     break;
