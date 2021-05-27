@@ -20,15 +20,15 @@ Usage
 
 Theory of Operation
     The premise of this tool is for it to be run regularly with the same target directory. Backups will be accumulated
-    in the target directory, which are read during the next backup to determine which files to back up (hence
+    in the target directory, which are read during the next backup to determine which files to copy (hence
     "incremental" backup). This model allows use of the tool without any installation or data stored elsewhere on the
     system.
     Multiple source directories may be used with the same target directory. When performing a backup, the tool will
     only read previous backups for the same source directory.
     
-    Determining if a file should be backed up is based on the last write time metadata. The tool will check for the
-    latest previous backup which contains the file. If the file has been modified since that backup, the file is
-    backed up, otherwise it is skipped. (If there are no previous backups, all files are backed up.)
+    Determining if a file should be copied is based on the last write time metadata. The tool will check for the latest
+    previous backup which contains the file. If the file has been modified since that backup, the file is copied,
+    otherwise it is not copied. (If there are no previous backups, all files are copied.)
     Note that if you mess with files' last write times, or mess with the system clock, or your timezone is
     particularly strange, this tool may not work as expected.
 

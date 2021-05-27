@@ -56,11 +56,11 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Represents a file that was backed up (copied).
+        /// Represents a file that was copied (due to having been modified since the last backup).
         /// </summary>
-        public class BackedUpFile : Entry
+        public class CopiedFile : Entry
         {
-            public BackedUpFile(string name) {
+            public CopiedFile(string name) {
                 Name = name;
             }
 
@@ -160,13 +160,13 @@ namespace IncrementalBackup
                             directoryStack[^1].Entries.Add(new BackupManifest.RemovedDirectory(directoryName));
                             break;
                         }
-                    case BackupManifestFileConstants.FILE_BACKED_UP: {
+                    case BackupManifestFileConstants.FILE_COPIED: {
                             // Note that empty filenames are allowed, even though it should never occur in practice.
                             var filename = Utility.NewlineDecode(argument);
                             // Technically we should check if the file has already been read, but in practice there
                             // shouldn't be any duplicate files, and duplicates shouldn't cause any issues, so we
                             // won't do any checks for performance reasons.
-                            directoryStack[^1].Entries.Add(new BackupManifest.BackedUpFile(filename));
+                            directoryStack[^1].Entries.Add(new BackupManifest.CopiedFile(filename));
                             break;
                         }
                     case BackupManifestFileConstants.FILE_REMOVED: {
@@ -202,7 +202,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Incrementally writes a backup manifest to file. <br/>
     /// Tracks the depth-first search used to explore the backup source location. The search's current
-    /// directory is manipulated with the <see cref="PushDirectory(string)"/> and <see cref="PopDirectory"/>
+    /// directory is manipulated with the <see cref="EnterDirectory(string)"/> and <see cref="BacktrackDirectory"/>
     /// methods.
     /// </summary>
     /// <remarks>
@@ -283,13 +283,13 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Records a file in the current directory as backed up (i.e. copied).
+        /// Records a file in the current directory as copied.
         /// </summary>
         /// <param name="name">The name of the file to record.</param>
         /// <exception cref="BackupManifestFileIOException">If the manifest file could not be written to.</exception>
-        public void RecordFileBackedUp(string name) {
+        public void RecordFileCopied(string name) {
             var encodedName = Utility.NewlineEncode(name);
-            var line = $"{BackupManifestFileConstants.FILE_BACKED_UP}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
+            var line = $"{BackupManifestFileConstants.FILE_COPIED}{BackupManifestFileConstants.SEPARATOR}{encodedName}";
             WriteLine(line);
         }
 
@@ -337,7 +337,7 @@ namespace IncrementalBackup
         public const string ENTER_DIRECTORY = ">d";
         public const string BACKTRACK_DIRECTORY = "<d";
         public const string DIRECTORY_REMOVED = "-d";
-        public const string FILE_BACKED_UP = "+f";
+        public const string FILE_COPIED = "+f";
         public const string FILE_REMOVED = "-f";
         public const char SEPARATOR = ';';
     }

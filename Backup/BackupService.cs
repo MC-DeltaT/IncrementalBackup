@@ -152,8 +152,8 @@ namespace IncrementalBackup
             string relativePath = string.Join(Path.DirectorySeparatorChar, state.RelativePathComponents);
             Lazy<string> fullPath = new(() => Path.Join(SourcePath, relativePath), false);
 
-            // Probably a good idea to get the full path from the system rather than form it ourselves, to make
-            // sure it's normalised correctly.
+            // Probably a good idea to get the full path from the system rather than form it ourselves, to make sure
+            // it's normalised correctly.
             string? fullPathNormalised = null;
             try {
                 fullPathNormalised = FilesystemException.ConvertSystemException(
@@ -232,8 +232,7 @@ namespace IncrementalBackup
                     ManifestWriter.BacktrackDirectory();
                 }
                 catch (BackupManifestFileIOException e) {
-                    Logger.Warning(
-                        $"Failed to write to manifest file: {e.InnerException.Reason}");
+                    Logger.Warning($"Failed to write to manifest file: {e.InnerException.Reason}");
                     Logger.Warning("Stopping backup");
                     Results.PathsSkipped = true;
                     return false;
@@ -333,15 +332,15 @@ namespace IncrementalBackup
                     continue;
                 }
 
-                // The ?? default is strangely required, apparently if the tuple type is nullable you can never
+                // The "?? default" is strangely required, apparently if the tuple type is nullable you can never
                 // deconstruct it normally, even if we assert the value is not null.
                 var (fullFilePathNormalised, lastWriteTimeUtc) = metadata ?? default;
 
                 if (IsPathExcluded(fullFilePathNormalised)) {
                     Logger.Info($"Skipped excluded file \"{fullFilePathNormalised}\"");
                 }
-                else if (ShouldBackUpFile(backupSumEntry, file.Name, lastWriteTimeUtc)) {
-                    BackUpFile(file, directoryBackupPath, fullDirectoryPath);
+                else if (ShouldCopyFile(backupSumEntry, file.Name, lastWriteTimeUtc)) {
+                    CopyFile(file, directoryBackupPath, fullDirectoryPath);
                 }
             }
 
@@ -365,7 +364,7 @@ namespace IncrementalBackup
         /// <param name="file">The file to copy.</param>
         /// <param name="directoryBackupPath">The backup path for the file's parent directory.</param>
         /// <param name="fullDirectoryPath">The full path to the file's parent directory.</param>
-        private void BackUpFile(FileInfo file, string directoryBackupPath, string fullDirectoryPath) {
+        private void CopyFile(FileInfo file, string directoryBackupPath, string fullDirectoryPath) {
             Lazy<string> fullFilePath = new(() => Path.Join(fullDirectoryPath, file.Name), false);
             var fileBackupPath = Path.Join(directoryBackupPath, file.Name);
 
@@ -381,13 +380,13 @@ namespace IncrementalBackup
             }
             catch (FilesystemException e) {
                 Logger.Warning(
-                    $"Failed to back up file \"{fullFilePath.Value}\" to \"{fileBackupPath}\": {e.Reason}");
+                    $"Failed to copy file \"{fullFilePath.Value}\" to \"{fileBackupPath}\": {e.Reason}");
                 Logger.Warning($"Skipped file \"{fullFilePath.Value}\"");
                 Results.PathsSkipped = true;
                 return;
             }
 
-            RecordBackedUpFile(file.Name, fullFilePath);
+            RecordCopiedFile(file.Name, fullFilePath);
         }
 
         /// <summary>
@@ -469,18 +468,18 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Records a file in the current search directory as backed up (copied) in the backup manifest. <br/>
+        /// Records a file in the current search directory as copied in the backup manifest. <br/>
         /// If the operation fails, sets <see cref="Results.ManifestComplete"/> to <c>false</c>.
         /// </summary>
         /// <param name="name">The name of the file.</param>
         /// <param name="fullPath">Gets the full path of the file (for error information).</param>
-        private void RecordBackedUpFile(string name, Lazy<string> fullPath) {
+        private void RecordCopiedFile(string name, Lazy<string> fullPath) {
             try {
-                ManifestWriter.RecordFileBackedUp(name);
+                ManifestWriter.RecordFileCopied(name);
             }
             catch (BackupManifestFileIOException e) {
                 Logger.Warning(
-                    $"Failed to record backed up file \"{fullPath.Value}\" in manifest file: {e.InnerException.Reason}");
+                    $"Failed to record copied file \"{fullPath.Value}\" in manifest file: {e.InnerException.Reason}");
                 Results.ManifestComplete = false;
             }
         }
@@ -503,19 +502,19 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Checks if a file should be backed up based on previous backups. <br />
+        /// Checks if a file should be copied based on previous backups. <br />
         /// Specifically, checks if the file has been modified since the last backup which included it.
         /// </summary>
         /// <param name="backupSumDirectoryEntry">The previous backup sum entry for the directory that contains the
         /// file. May be <c>null</c> if the directory isn't present in previous backups.</param>
         /// <param name="filename">The name of the file to check.</param>
         /// <param name="lastWriteTimeUtc">The UTC time the file was last modified.</param>
-        /// <returns><c>true</c> if the file should be backed up, otherwise <c>false</c>.</returns>
-        private static bool ShouldBackUpFile(BackupSum.Directory? backupSumDirectoryEntry, string filename,
+        /// <returns><c>true</c> if the file should be copied, otherwise <c>false</c>.</returns>
+        private static bool ShouldCopyFile(BackupSum.Directory? backupSumDirectoryEntry, string filename,
                 DateTime lastWriteTimeUtc) {
             var file = backupSumDirectoryEntry?.Files.Find(f => Utility.PathEqual(f.Name, filename));
             if (file is null) {
-                // File has never been backed up.
+                // File has never been copied.
                 return true;
             }
             else {
@@ -524,8 +523,8 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Checks if a path matches any paths in the excluded paths configuration, and thus should be excluded
-        /// from the back up.
+        /// Checks if a path matches any paths in the excluded paths configuration, and thus should be excluded from
+        /// the back up.
         /// </summary>
         /// <remarks>
         /// Uses case-insensitive path matching, so only works on Windows.

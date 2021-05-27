@@ -54,7 +54,7 @@ namespace IncrementalBackup
                                 case BackupManifest.Directory dir:
                                     subdirectories.Add(dir);
                                     break;
-                                case BackupManifest.BackedUpFile file: {
+                                case BackupManifest.CopiedFile file: {
                                         var prevFile = nodeStack[^1].Files.Find(
                                             f => Utility.PathEqual(f.Name, file.Name));
                                         if (prevFile is null) {
@@ -144,7 +144,7 @@ namespace IncrementalBackup
             /// </summary>
             public string Name;
             /// <summary>
-            /// The last backup that backed up this file.
+            /// The last backup that copied this file.
             /// </summary>
             public BackupMetadata LastBackup;
         }
