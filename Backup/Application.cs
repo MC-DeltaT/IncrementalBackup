@@ -42,6 +42,7 @@ namespace IncrementalBackup
                 var (backupName, manifestWriter) = InitialiseBackup(config.SourcePath, config.TargetPath);
                 var results = DoBackup(config, previousBackupSum, backupName, manifestWriter);
                 var metadataWritten = CompleteBackup(config.SourcePath, config.TargetPath, backupName, results);
+                LogResults(results);
 
                 if (!results.PathsSkipped && results.ManifestComplete && metadataWritten) {
                     return ProcessExitCode.Success;
@@ -342,6 +343,17 @@ namespace IncrementalBackup
             }
 
             return success;
+        }
+
+        /// <summary>
+        /// Writes information about backup results to the logs.
+        /// </summary>
+        /// <param name="results">The backup results to write.</param>
+        public void LogResults(BackupResults results) {
+            Logger.Info($"{results.DirectoriesBackedUp} directories backed up");
+            Logger.Info($"{results.DirectoriesRemoved} directories removed");
+            Logger.Info($"{results.FilesCopied} files copied");
+            Logger.Info($"{results.FilesRemoved} individual files removed");
         }
     }
 

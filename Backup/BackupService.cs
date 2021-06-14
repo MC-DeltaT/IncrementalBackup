@@ -11,9 +11,14 @@ namespace IncrementalBackup
     /// </summary>
     class BackupResults
     {
-        public BackupResults(bool pathsSkipped, bool manifestComplete) {
+        public BackupResults(bool pathsSkipped, bool manifestComplete, long directoriesBackedUp,
+                long directoriesRemoved, long filesCopied, long filesRemoved) {
             PathsSkipped = pathsSkipped;
             ManifestComplete = manifestComplete;
+            DirectoriesBackedUp = directoriesBackedUp;
+            DirectoriesRemoved = directoriesRemoved;
+            FilesCopied = filesCopied;
+            FilesRemoved = filesRemoved;
         }
 
         /// <summary>
@@ -21,11 +26,26 @@ namespace IncrementalBackup
         /// that were specifically requested to be excluded).
         /// </summary>
         public bool PathsSkipped;
-
         /// <summary>
         /// Indicates whether all files and directories backed up were recorded in the backup manifest file.
         /// </summary>
         public bool ManifestComplete;
+        /// <summary>
+        /// The number of directories successfully backed up.
+        /// </summary>
+        public long DirectoriesBackedUp;
+        /// <summary>
+        /// The number of directories removed compared to the previous backup.
+        /// </summary>
+        public long DirectoriesRemoved;
+        /// <summary>
+        /// The number of files copied.
+        /// </summary>
+        public long FilesCopied;
+        /// <summary>
+        /// The number of files removed compared to the previous backup.
+        /// </summary>
+        public long FilesRemoved;
     }
 
     class BackupService
@@ -57,7 +77,7 @@ namespace IncrementalBackup
             BackupDataPath = BackupMeta.BackupDataPath(backupPath);
             ManifestWriter = manifestWriter;
             Logger = logger;
-            Results = new(false, true);
+            Results = new(false, true, 0, 0, 0, 0);
         }
 
         /// <summary>
@@ -203,8 +223,10 @@ namespace IncrementalBackup
                 if (backupSumEntry is not null) {
                     foreach (var existingDir in backupSumEntry.Subdirectories) {
                         if (!subdirectories.Any(d => Utility.PathEqual(d.Name, existingDir.Name))) {
-                            RecordRemovedDirectory(existingDir.Name,
-                                new(() => Path.Join(fullPathNormalised!, existingDir.Name)));
+                            if (RecordRemovedDirectory(existingDir.Name,
+                                    new(() => Path.Join(fullPathNormalised!, existingDir.Name)))) {
+                                Results.DirectoriesRemoved++;
+                            }
                         }
                     }
                 }
@@ -269,7 +291,7 @@ namespace IncrementalBackup
         private bool BackUpDirectory(DirectoryInfo directory, string relativePath, BackupSum.Directory? backupSumEntry,
                 bool isRoot, string fullPath) {
             var directoryBackupPath = Path.Join(BackupDataPath, relativePath);
-
+            
             try {
                 FilesystemException.ConvertSystemException(() => Directory.CreateDirectory(directoryBackupPath),
                     () => directoryBackupPath);
@@ -291,6 +313,8 @@ namespace IncrementalBackup
                     return false;
                 }
             }
+
+            Results.DirectoriesBackedUp++;
 
             BackUpDirectoryFiles(directory, backupSumEntry, directoryBackupPath, fullPath);
 
@@ -348,8 +372,10 @@ namespace IncrementalBackup
             if (backupSumEntry is not null) {
                 foreach (var existingFile in backupSumEntry.Files) {
                     if (!files.Any(f => Utility.PathEqual(f.Name, existingFile.Name))) {
-                        RecordRemovedFile(existingFile.Name,
-                            new(() => Path.Join(fullDirectoryPath, existingFile.Name)));
+                        if (RecordRemovedFile(existingFile.Name,
+                                new(() => Path.Join(fullDirectoryPath, existingFile.Name)))) {
+                            Results.FilesRemoved++;
+                        }
                     }
                 }
             }
@@ -386,7 +412,9 @@ namespace IncrementalBackup
                 return;
             }
 
-            RecordCopiedFile(file.Name, fullFilePath);
+            if (RecordCopiedFile(file.Name, fullFilePath)) {
+                Results.FilesCopied++;
+            }
         }
 
         /// <summary>
@@ -456,14 +484,17 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="name">The name of the directory.</param>
         /// <param name="fullPath">Gets the full path of the directory (for error information).</param>
-        private void RecordRemovedDirectory(string name, Lazy<string> fullPath) {
+        /// <returns><c>true</c> if the operation succeeded, otherwise <c>false</c>.</returns>
+        private bool RecordRemovedDirectory(string name, Lazy<string> fullPath) {
             try {
                 ManifestWriter.RecordDirectoryRemoved(name);
+                return true;
             }
             catch (BackupManifestFileIOException e) {
                 Logger.Warning(
                     $"Failed to record removed directory \"{fullPath.Value}\" in manifest file: {e.InnerException.Reason}");
                 Results.ManifestComplete = false;
+                return false;
             }
         }
 
@@ -473,14 +504,17 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="name">The name of the file.</param>
         /// <param name="fullPath">Gets the full path of the file (for error information).</param>
-        private void RecordCopiedFile(string name, Lazy<string> fullPath) {
+        /// <returns><c>true</c> if the operation succeeded, otherwise <c>false</c>.</returns>
+        private bool RecordCopiedFile(string name, Lazy<string> fullPath) {
             try {
                 ManifestWriter.RecordFileCopied(name);
+                return true;
             }
             catch (BackupManifestFileIOException e) {
                 Logger.Warning(
                     $"Failed to record copied file \"{fullPath.Value}\" in manifest file: {e.InnerException.Reason}");
                 Results.ManifestComplete = false;
+                return false;
             }
         }
 
@@ -490,14 +524,17 @@ namespace IncrementalBackup
         /// </summary>
         /// <param name="name">The name of the file.</param>
         /// <param name="fullPath">Gets the full path of the file (for error information).</param>
-        private void RecordRemovedFile(string name, Lazy<string> fullPath) {
+        /// <returns><c>true</c> if the operation succeeded, otherwise <c>false</c>.</returns>
+        private bool RecordRemovedFile(string name, Lazy<string> fullPath) {
             try {
                 ManifestWriter.RecordFileRemoved(name);
+                return true;
             }
             catch (BackupManifestFileIOException e) {
                 Logger.Warning(
                     $"Failed to record removed file \"{fullPath.Value}\" in manifest file: {e.InnerException.Reason}");
                 Results.ManifestComplete = false;
+                return false;
             }
         }
 
