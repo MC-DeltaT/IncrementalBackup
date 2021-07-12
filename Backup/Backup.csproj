@@ -1,13 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>Library</OutputType>
     <TargetFramework>net5.0</TargetFramework>
-    <StartupObject>IncrementalBackup.Application</StartupObject>
+    <StartupObject></StartupObject>
   </PropertyGroup>
   
   <PropertyGroup>
     <Nullable>enable</Nullable>
+    <ApplicationIcon />
   </PropertyGroup>
   
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -16,6 +17,7 @@
   
   <ItemGroup>
     <ProjectReference Include="..\BackupMeta\BackupMeta.csproj" />
+    <ProjectReference Include="..\Utility\Utility.csproj" />
   </ItemGroup>
 
 </Project>

@@ -90,32 +90,32 @@ Backup Manifest File - manifest.txt
     and "backtrack directory". The current search directory begins as the backup source directory.
 
     It is a UTF-8-encoded text file, and is line-based. Each line has the following format:
-        <command>;<argument>
-    <command> is a 2-character code that determines the type of record on this line.
-    <argument> is an optional string parameter for that command type. <argument> is encoded so that it does not span
+        <operation>;<argument>
+    <operation> is a 2-character code that determines the type of record on this line.
+    <argument> is an optional string parameter for that operation type. <argument> is encoded so that it does not span
     several lines; see the "Newline Encoding" section.
     
-    The commands are as follows:
+    The operations are as follows:
         >d (Enter directory)
         <d (Backtrack directory)
         -d (Directory removed)
         +f (File copied)
         -f (File removed)
 
-    The "enter directory" command manipulates the current search directory by pushing one of its direct subdirectories.
-    <argument> specifies the subdirectory's name.
+    The "enter directory" operation manipulates the current search directory by pushing one of its direct
+    subdirectories. <argument> specifies the subdirectory's name.
     This line is also used to record the directory itself (not its contents) as having been copied.
     
-    The "backtrack directory" command manipulates the current search directory by backtracking to its parent directory.
-    <argument> is not used. This shall never backtrack past the backup source directory.
+    The "backtrack directory" operation manipulates the current search directory by backtracking to its parent
+    directory. <argument> is not used. This shall never backtrack past the backup source directory.
     
-    The "directory removed" command records a direct subdirectory of the current search directory as removed since the
-    last backup. <argument> specifies the subdirectory's name.
+    The "directory removed" operation records a direct subdirectory of the current search directory as removed since
+    the last backup. <argument> specifies the subdirectory's name.
     
-    The "file copied" command records a file directly contained within the current search directory as modified or
+    The "file copied" operation records a file directly contained within the current search directory as modified or
     created since the last backup, and thus having been copied. <argument> specifies the file's name.
     
-    The "file removed" command records a file directly contained within the current search directory as removed since
+    The "file removed" operation records a file directly contained within the current search directory as removed since
     the last backup. <argument> specifies the file's name.
     This record is required for the purposes of restoring files from backups. Otherwise, you could only restore all
     files that were ever backed up - even deleted ones - which is likely not desired.

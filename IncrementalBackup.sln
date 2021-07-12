@@ -11,8 +11,17 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BackupMeta", "BackupMeta\BackupMeta.csproj", "{0C1A71FA-1575-4623-A9E5-334AF3CB8172}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Backup", "Backup\Backup.csproj", "{774A06EC-70FF-4D57-B395-A9F04B65BC28}"
+	ProjectSection(ProjectDependencies) = postProject
+		{1F011A1B-B2DC-4828-9CD7-DF3AC686C001} = {1F011A1B-B2DC-4828-9CD7-DF3AC686C001}
+	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Utility", "Utility\Utility.csproj", "{1F011A1B-B2DC-4828-9CD7-DF3AC686C001}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Utility", "Utility\Utility.csproj", "{1F011A1B-B2DC-4828-9CD7-DF3AC686C001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IncrementalBackup", "IncrementalBackup\IncrementalBackup.csproj", "{992107FC-E008-4B53-88F9-5DB9006D99C2}"
+	ProjectSection(ProjectDependencies) = postProject
+		{1F011A1B-B2DC-4828-9CD7-DF3AC686C001} = {1F011A1B-B2DC-4828-9CD7-DF3AC686C001}
+		{774A06EC-70FF-4D57-B395-A9F04B65BC28} = {774A06EC-70FF-4D57-B395-A9F04B65BC28}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -32,6 +41,10 @@ Global
 		{1F011A1B-B2DC-4828-9CD7-DF3AC686C001}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1F011A1B-B2DC-4828-9CD7-DF3AC686C001}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1F011A1B-B2DC-4828-9CD7-DF3AC686C001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{992107FC-E008-4B53-88F9-5DB9006D99C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{992107FC-E008-4B53-88F9-5DB9006D99C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{992107FC-E008-4B53-88F9-5DB9006D99C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{992107FC-E008-4B53-88F9-5DB9006D99C2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

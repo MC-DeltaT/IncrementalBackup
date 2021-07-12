@@ -1,12 +1,12 @@
-Incremental Backup Utility - Backup Creation Tool
+Incremental Backup Utility - Backup Creation Command
 
 
 Introduction
-    This program is used to create new incremental backups.
+    This command is used to create new incremental backups.
 
 
 Usage
-    Backup.exe <source_dir> <target_dir> [<exclude_path1> <exclude_path2> ...]
+    IncrementalBackup.exe backup <source_dir> <target_dir> [<exclude_path1> <exclude_path2> ...]
     
     <source_dir> - The path of the directory to be backed up. May be at least any locally mapped drive (I'm not sure
     how other path types like UNC would work, I haven't tested). If relative, it's taken to be relative to the current
@@ -19,18 +19,18 @@ Usage
 
 
 Theory of Operation
-    The premise of this tool is for it to be run regularly with the same target directory. Backups will be accumulated
-    in the target directory, which are read during the next backup to determine which files to copy (hence
-    "incremental" backup). This model allows use of the tool without any installation or data stored elsewhere on the
-    system.
-    Multiple source directories may be used with the same target directory. When performing a backup, the tool will
-    only read previous backups for the same source directory.
+    The premise of this command is for it to be run regularly with the same target directory. Backups will be
+    accumulated in the target directory, which are read during the next backup to determine which files to copy (hence
+    "incremental" backup). This model allows use of the application without any installation or data stored elsewhere
+    on the system.
+    Multiple source directories may be used with the same target directory. When performing a backup, the application
+    will only read previous backups for the same source directory.
     
-    Determining if a file should be copied is based on the last write time metadata. The tool will check for the latest
-    previous backup which contains the file. If the file has been modified since that backup, the file is copied,
-    otherwise it is not copied. (If there are no previous backups, all files are copied.)
+    Determining if a file should be copied is based on the last write time metadata. The program will check for the
+    latest previous backup which contains the file. If the file has been modified since that backup, the file is
+    copied, otherwise it is not copied. (If there are no previous backups, all files are copied.)
     Note that if you mess with files' last write times, or mess with the system clock, or your timezone is
-    particularly strange, this tool may not work as expected.
+    particularly strange, this application may not work as expected.
 
     Note that matching of paths is done literally and is case insensitive. "Literally" meaning that path aliasing (for
     example symbolic links) is probably not handled. The case insensitivity is because Windows uses case insensitive
@@ -50,12 +50,13 @@ Process Return Codes
 
 
 Error Handling
-    Since this tool performs a lot of file operations, there are many oppurtunities for unavoidable errors to occur.
-    In general, this tool tries to back up as much of the source directory as possible, even when errors occur.
+    Since this application performs a lot of file operations, there are many oppurtunities for unavoidable errors to
+    occur. In general, this command tries to back up as much of the source directory as possible, even when errors
+    occur.
     If a directory or file can't be read, it will simply be skipped (this will be logged to the console).
     In very few cases an error may occur that prevents the backup from continuing. In such cases, large amounts of
     files may be skipped (which will also be logged to the console).
-    The tool is designed to fail securely. In almost all error cases, the backup shall remain in a consistent, albeit
-    perhaps incomplete, state. In the worst error case, some files will be backed up, but metadata for the backup won't
-    be written, so the backup won't be used during the next backup.
+    The command is designed to fail securely. In almost all error cases, the backup shall remain in a consistent,
+    albeit perhaps incomplete, state. In the worst error case, some files will be backed up, but metadata for the
+    backup won't be written, so the backup won't be used during the next backup.
 

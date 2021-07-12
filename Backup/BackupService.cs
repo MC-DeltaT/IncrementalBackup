@@ -9,7 +9,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Results of a backup run.
     /// </summary>
-    class BackupResults
+    public class BackupResults
     {
         public BackupResults(bool pathsSkipped, bool manifestComplete, long directoriesBackedUp,
                 long directoriesRemoved, long filesCopied, long filesRemoved) {
@@ -48,7 +48,7 @@ namespace IncrementalBackup
         public long FilesRemoved;
     }
 
-    class BackupService
+    public class BackupService
     {
         /// <summary>
         /// Runs a backup instance. Backs up files from the source directory to the backup directory and records them
@@ -604,7 +604,7 @@ namespace IncrementalBackup
     /// <summary>
     /// Indicates that a backup operation failed completely, i.e. could not be started and no files were copied.
     /// </summary>
-    class BackupServiceException : Exception
+    public class BackupServiceException : Exception
     {
         public BackupServiceException(string message, FilesystemException innerException) :
             base(message, innerException) { }

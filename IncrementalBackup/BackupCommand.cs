@@ -7,85 +7,69 @@ using System.Linq;
 namespace IncrementalBackup
 {
     /// <summary>
-    /// The top-level program class, containing high level operations and control flow.
+    /// The subapplication that handles creation of new backups.
     /// </summary>
-    class Application
+    class BackupCommand : ICommand
     {
+        public BackupCommand(Logger logger) {
+            Logger = logger;
+        }
+
+        public static Command COMMAND = new(
+            "backup",
+            "<source_dir> <target_dir> [exclude_path1 exclude_path2 ...]",
+            logger => new BackupCommand(logger)
+        );
+
         /// <summary>
-        /// Application entry point. <br/>
-        /// Instantiates the <see cref="Application"/> instance and calls <see cref="Run(string[])"/>.
+        /// Command entrypoint.
         /// </summary>
-        static int Main(string[] cmdArgs) =>
-            (int)new Application().Run(cmdArgs);
+        /// <param name="arguments">The command's arguments from the program arguments.
+        /// <returns>The process return code.</returns>
+        public ProcessExitCode Run(string[] arguments) {
+            Config config = ParseArguments(arguments);
+            LogConfig(config);
+            var index = ReadBackupIndex(config.TargetPath);
+            var previousBackups = ReadPreviousBackups(config.SourcePath, config.TargetPath, index);
+            BackupSum previousBackupSum = new(previousBackups);
+            var (backupName, manifestWriter) = InitialiseBackup(config.SourcePath, config.TargetPath);
+            var results = DoBackup(config, previousBackupSum, backupName, manifestWriter);
+            var metadataWritten = CompleteBackup(config.SourcePath, config.TargetPath, backupName, results);
+            LogResults(results);
+
+            if (!results.PathsSkipped && results.ManifestComplete && metadataWritten) {
+                return ProcessExitCode.Success;
+            }
+            else {
+                return ProcessExitCode.Warning;
+            }
+        }
 
         /// <summary>
         /// Logger responsible for writing info to the console and log file.
         /// </summary>
         private readonly Logger Logger;
 
-        private Application() {
-            Logger = new(new ConsoleLogHandler(), null);
-        }
-
         /// <summary>
-        /// Main application functionality.
-        /// </summary>
-        /// <param name="cmdArgs">The process's command line arguments.</param>
-        /// <returns>The process return code.</returns>
-        private ProcessExitCode Run(string[] cmdArgs) {
-            try {
-                AppConfig config = ParseCmdArgs(cmdArgs);
-                LogConfig(config);
-                var index = ReadBackupIndex(config.TargetPath);
-                var previousBackups = ReadPreviousBackups(config.SourcePath, config.TargetPath, index);
-                BackupSum previousBackupSum = new(previousBackups);
-                var (backupName, manifestWriter) = InitialiseBackup(config.SourcePath, config.TargetPath);
-                var results = DoBackup(config, previousBackupSum, backupName, manifestWriter);
-                var metadataWritten = CompleteBackup(config.SourcePath, config.TargetPath, backupName, results);
-                LogResults(results);
-
-                if (!results.PathsSkipped && results.ManifestComplete && metadataWritten) {
-                    return ProcessExitCode.Success;
-                }
-                else {
-                    return ProcessExitCode.Warning;
-                }
-            }
-            catch (InvalidCmdArgsError) {
-                Console.Out.WriteLine(
-                    "Usage: IncrementalBackup.exe <source_dir> <target_dir> [exclude_path1 exclude_path2 ...]");
-                return ProcessExitCode.InvalidArgs;
-            }
-            catch (ApplicationRuntimeError e) {
-                Logger.Error(e.Message);
-                return ProcessExitCode.RuntimeError;
-            }
-            catch (Exception e) {
-                Logger.Error($"Unhandled exception: {e}");
-                return ProcessExitCode.LogicError;
-            }
-        }
-
-        /// <summary>
-        /// Parses and validates the application's command line arguments.
+        /// Parses and validates the command's arguments.
         /// </summary>
         /// <remarks>
-        /// Note that the filesystem paths in the returned <see cref="AppConfig"/> are not guaranteed to be valid, as
+        /// Note that the filesystem paths in the returned <see cref="Config"/> are not guaranteed to be valid, as
         /// this is unfortunately not really possible to check without actually doing the desired I/O operation. <br/>
         /// However, some invalid paths are detected by this method.
         /// </remarks>
-        /// <param name="args">The command line arguments.</param>
-        /// <returns>The <see cref="AppConfig"/> parsed from the arguments.</returns>
-        /// <exception cref="InvalidCmdArgsError">If the command line arguments are invalid.</exception>
+        /// <param name="arguments">The command arguments.</param>
+        /// <returns>The <see cref="Config"/> parsed from the arguments.</returns>
+        /// <exception cref="InvalidCommandArgsError">If the arguments are invalid.</exception>
         /// <exception cref="ApplicationRuntimeError">If the config paths can't be resolved.</exception>
-        private AppConfig ParseCmdArgs(string[] args) {
-            if (args.Length < 2) {
-                throw new InvalidCmdArgsError();
+        private Config ParseArguments(string[] arguments) {
+            if (arguments.Length < 2) {
+                throw new InvalidCommandArgsError(COMMAND);
             }
 
-            var sourcePath = args[0];
-            var targetPath = args[1];
-            var excludePaths = args.Skip(2);
+            var sourcePath = arguments[0];
+            var targetPath = arguments[1];
+            var excludePaths = arguments.Skip(2);
 
             try {
                 sourcePath = FilesystemException.ConvertSystemException(() => Path.GetFullPath(sourcePath),
@@ -132,10 +116,10 @@ namespace IncrementalBackup
         }
 
         /// <summary>
-        /// Outputs a <see cref="AppConfig"/> to <see cref="Logger"/>.
+        /// Outputs a <see cref="Config"/> to <see cref="Logger"/>.
         /// </summary>
-        /// <param name="config">The application config to output.</param>
-        private void LogConfig(AppConfig config) {
+        /// <param name="config">The command config to output.</param>
+        private void LogConfig(Config config) {
             Logger.Info($"Source directory: {config.SourcePath}");
             Logger.Info($"Target directory: {config.TargetPath}");
             Logger.Info("Exclude paths:\n"
@@ -238,7 +222,7 @@ namespace IncrementalBackup
         /// <returns>A tuple of the backup directory name and manifest writer.</returns>
         /// <exception cref="ApplicationRuntimeError">If the backup directory, start info file, or manifest writer
         /// can't be created.</exception>
-        public (string, BackupManifestWriter) InitialiseBackup(string sourcePath, string targetPath) {
+        private (string, BackupManifestWriter) InitialiseBackup(string sourcePath, string targetPath) {
             string backupName;
             try {
                 backupName = BackupMeta.CreateBackupDirectory(targetPath);
@@ -294,7 +278,7 @@ namespace IncrementalBackup
         /// <param name="manifestWriter">Writes the backup manifest. Must be in a newly-constructed state.</param>
         /// <returns>Results of the backup.</returns>
         /// <exception cref="ApplicationRuntimeError">If the backup fails.</exception>
-        private BackupResults DoBackup(AppConfig config, BackupSum previousBackupSum, string backupName,
+        private BackupResults DoBackup(Config config, BackupSum previousBackupSum, string backupName,
                 BackupManifestWriter manifestWriter) {
             var backupPath = BackupMeta.BackupPath(config.TargetPath, backupName);
             Logger.Info("Running backup operation");
@@ -315,7 +299,7 @@ namespace IncrementalBackup
         /// <param name="backupName">The name of the backup directory.</param>
         /// <param name="results">The results of the backup.</param>
         /// <returns><c>true</c> if all the operations completed successfully, otherwise <c>false</c>.</returns>
-        public bool CompleteBackup(string sourcePath, string targetPath, string backupName, BackupResults results) {
+        private bool CompleteBackup(string sourcePath, string targetPath, string backupName, BackupResults results) {
             var backupPath = BackupMeta.BackupPath(targetPath, backupName);
 
             bool success = true;
@@ -349,80 +333,37 @@ namespace IncrementalBackup
         /// Writes information about backup results to the logs.
         /// </summary>
         /// <param name="results">The backup results to write.</param>
-        public void LogResults(BackupResults results) {
+        private void LogResults(BackupResults results) {
             Logger.Info($"{results.DirectoriesBackedUp} directories backed up");
             Logger.Info($"{results.DirectoriesRemoved} directories removed");
             Logger.Info($"{results.FilesCopied} files copied");
             Logger.Info($"{results.FilesRemoved} individual files removed");
         }
-    }
 
-    /// <summary>
-    /// Configuration of the application.
-    /// </summary>
-    class AppConfig {
-        public AppConfig(string sourcePath, string targetPath, IReadOnlyList<string> excludePaths) {
-            SourcePath = sourcePath;
-            TargetPath = targetPath;
-            ExcludePaths = excludePaths;
+        /// <summary>
+        /// Configuration of the backup command.
+        /// </summary>
+        private class Config
+        {
+            public Config(string sourcePath, string targetPath, IReadOnlyList<string> excludePaths) {
+                SourcePath = sourcePath;
+                TargetPath = targetPath;
+                ExcludePaths = excludePaths;
+            }
+
+            /// <summary>
+            /// The path of the directory to be backed up. Should be fully qualified and normalised.
+            /// </summary>
+            public readonly string SourcePath;
+            /// <summary>
+            /// The path of the directory to back up to. Should be fully qualified and normalised.
+            /// </summary>
+            public readonly string TargetPath;
+            /// <summary>
+            /// A list of files and folders that are excluded from being backed up. Each path should be fully qualified and
+            /// normalised.
+            /// </summary>
+            public readonly IReadOnlyList<string> ExcludePaths;
         }
-
-        /// <summary>
-        /// The path of the directory to be backed up. Should be fully qualified and normalised.
-        /// </summary>
-        public readonly string SourcePath;
-        /// <summary>
-        /// The path of the directory to back up to. Should be fully qualified and normalised.
-        /// </summary>
-        public readonly string TargetPath;
-        /// <summary>
-        /// A list of files and folders that are excluded from being backed up. Each path should be fully qualified and
-        /// normalised.
-        /// </summary>
-        public readonly IReadOnlyList<string> ExcludePaths;
-    }
-
-    enum ProcessExitCode
-    {
-        /// <summary>
-        /// Successfully backed up all requested files.
-        /// </summary>
-        Success = 0,
-        /// <summary>
-        /// The backup completed mostly successfully, but with some warnings (e.g. files were skipped or metadata
-        /// couldn't be saved).
-        /// </summary>
-        Warning = 1,
-        /// <summary>
-        /// The backup was aborted due to invalid command line arguments.
-        /// </summary>
-        InvalidArgs = 2,
-        /// <summary>
-        /// The backup was aborted due to some runtime error.
-        /// </summary>
-        RuntimeError = 3,
-        /// <summary>
-        /// The backup was aborted due to an unhandled exception (bad programmer!).
-        /// </summary>
-        LogicError = 4,
-    }
-
-    /// <summary>
-    /// Indicates a high-level operation failed and as a result the application cannot continue. <br/>
-    /// <see cref="Exception.Message"/> is the message to write to the logs.
-    /// </summary>
-    class ApplicationRuntimeError : Exception
-    {
-        public ApplicationRuntimeError(string message) :
-            base(message) { }
-    }
-
-    /// <summary>
-    /// Indicates the application's command line arguments are invalid.
-    /// </summary>
-    class InvalidCmdArgsError : ApplicationRuntimeError
-    {
-        public InvalidCmdArgsError() :
-            base("Invalid command line arguments") { }
     }
 }

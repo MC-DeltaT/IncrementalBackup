@@ -124,9 +124,9 @@ namespace IncrementalBackup
                 if (line.Length < 3 || line[2] != BackupManifestFileConstants.SEPARATOR) {
                     throw new BackupManifestFileParseException(filePath, lineNum);
                 }
-                var command = line[0..2];
+                var operation = line[0..2];
                 var argument = line[3..];
-                switch (command) {
+                switch (operation) {
                     case BackupManifestFileConstants.ENTER_DIRECTORY: {
                             // Note that empty directory names are allowed, even though it should never occur in
                             // practice.
