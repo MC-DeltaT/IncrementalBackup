@@ -2,6 +2,11 @@ Incremental Backup Utility
 by Reece Jones
 
 
+Notice
+    This project has been superseded by the project here: https://github.com/MC-DeltaT/IncrementalBackup2
+    No further updates to this project will be released.
+
+
 Purpose
     Unlike Linux, which has awesome tools like rsync, Windows does not have a good selection of free backup tools.
     There is the Windows system image backup, however that does full backups only. There is also File History, but that
@@ -13,9 +18,6 @@ Purpose
         - fast
         - transparent backup format
 
-    At this time, there is the ability to back up files, but no ability to restore them. I will probably implement this
-    feature soon. In the meantime, the backup structure is so simple that you can probably implement this yourself.
-    
     Note that this application is intended for low-risk personal use. I have tried to make it as robust as possible,
     but if you use this software and lose all your data as a result, that's on you.
 
